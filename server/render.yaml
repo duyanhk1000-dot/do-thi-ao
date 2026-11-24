@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: do-thi-ao-server
+    env: node
+    region: singapore
+    plan: free
+    rootDir: server
+    buildCommand: npm ci
+    startCommand: node index.js
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 2567
