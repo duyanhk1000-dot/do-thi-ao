@@ -14,6 +14,11 @@
      onJobResult(msg)    M3 {type:'job'|'shipper'|'hospital', ok, error, ...}
      onNpcTalk(msg)      M3 {npcId, name, isGuide, x, y, text, quest?, personaId?}
      onFaintAlert(msg)   M3 {playerId, name, x, y, at} (doctors only)
+     onFainted(msg)      M4 {playerId, name, x, y, at} (whole room — the
+                         online self-faint SFX hook; M3 had no such message)
+     onVehicleResult(msg) M4 {type:'vehicle', ok, action, ...}
+     onTaxiResult(msg)   M4 {type:'taxi', ok, action, ...}
+     onMotelResult(msg)  M4 {type:'motel', ok, action, ...}
      onSnapshot(state)   {players:[...], npcs:[...], worldTime} (full sweep)
      onDisconnected()    (room left unexpectedly — reconnecting)
      onReconnected()     (rejoin succeeded)
@@ -32,6 +37,10 @@
       anim: p.anim, job: p.job, hp: p.hp, hunger: p.hunger,
       stamina: p.stamina, cash: p.cash, bank: p.bank,
       isFainted: !!p.isFainted, vehicleId: p.vehicleId || '',
+      // M4 vehicles / taxi / motel (§8).
+      vehicleType: p.vehicleType || '', fuel: (p.fuel === undefined ? 100 : p.fuel),
+      durability: (p.durability === undefined ? 100 : p.durability),
+      passengerId: p.passengerId || '', roomExpiresAt: p.roomExpiresAt || 0,
       chatBubble: p.chatBubble || '', chatBubbleUntil: p.chatBubbleUntil || 0,
       avatar: p.avatar || 'hero',
       // M3 Shipper (§6): active order mirrored from the server state.
@@ -152,9 +161,38 @@
       catch (e) { return false; }
     },
 
-    sendInteract: function (targetId, action) {
+    sendInteract: function (targetId, action, extra) {
       if (!this.connected || !this.room) return false;
-      try { this.room.send('interact', { targetId: targetId, action: action }); return true; }
+      var msg = { targetId: targetId, action: action };
+      if (extra) Object.keys(extra).forEach(function (k) { msg[k] = extra[k]; });
+      try { this.room.send('interact', msg); return true; }
+      catch (e) { return false; }
+    },
+
+    // M4: vehicle ('buy' | 'mount' | 'dismount' | 'refuel' | 'repair' |
+    // 'status'), taxi ('toggle' | 'invite' | 'accept' | 'decline' |
+    // 'pickup' | 'dropoff' | 'leave' | 'status'), motel ('rent' |
+    // 'renew' | 'chest_put' | 'chest_take' | 'status'). extra carries
+    // the action's fields (vehicleId, targetId, npcId, itemId, qty...).
+    sendVehicle: function (action, extra) {
+      if (!this.connected || !this.room) return false;
+      var msg = { action: action };
+      if (extra) Object.keys(extra).forEach(function (k) { msg[k] = extra[k]; });
+      try { this.room.send('vehicle', msg); return true; }
+      catch (e) { return false; }
+    },
+    sendTaxi: function (action, extra) {
+      if (!this.connected || !this.room) return false;
+      var msg = { action: action };
+      if (extra) Object.keys(extra).forEach(function (k) { msg[k] = extra[k]; });
+      try { this.room.send('taxi', msg); return true; }
+      catch (e) { return false; }
+    },
+    sendMotel: function (action, extra) {
+      if (!this.connected || !this.room) return false;
+      var msg = { action: action };
+      if (extra) Object.keys(extra).forEach(function (k) { msg[k] = extra[k]; });
+      try { this.room.send('motel', msg); return true; }
       catch (e) { return false; }
     },
 
@@ -258,6 +296,13 @@
       room.onMessage('job_result', function (msg) { self._call('onJobResult', msg); });
       room.onMessage('npc_talk', function (msg) { self._call('onNpcTalk', msg); });
       room.onMessage('faint_alert', function (msg) { self._call('onFaintAlert', msg); });
+      // M4: explicit 'fainted' broadcast (fixes the M3 gap: online
+      // self-faint played no sound — main.js hooks onFainted -> faint SFX),
+      // plus vehicle / taxi / motel results.
+      room.onMessage('fainted', function (msg) { self._call('onFainted', msg); });
+      room.onMessage('vehicle_result', function (msg) { self._call('onVehicleResult', msg); });
+      room.onMessage('taxi_result', function (msg) { self._call('onTaxiResult', msg); });
+      room.onMessage('motel_result', function (msg) { self._call('onMotelResult', msg); });
 
       room.onLeave(function (code) {
         self.connected = false;

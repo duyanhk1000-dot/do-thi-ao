@@ -131,10 +131,13 @@
   var playerState = {
     id: 'local-1', name: 'CongDan', x: 2400, y: 2625, vx: 0, vy: 0,
     anim: 'idle', job: 'unemployed', hp: 100, hunger: 100, stamina: 100,
-    // M2 (SRS §4.5/§5.1): profile is created with Cash = 0. The 50.000đ
+    // M2 (SRS §4.5/§5.1): profile is created with Cash = 0. The 80.000đ
     // starter grant comes from Economy.starterGrant() — ONE transaction,
     // logged as starter_grant, never a hardcoded default.
     cash: 0, bank: 0, isFainted: false, vehicleId: null,
+    // M4 (§8): fuel % (motorbike) / durability % (bicycle) of the ridden
+    // vehicle, the passenger aboard (taxi), and the motel room expiry.
+    fuel: 100, durability: 100, passengerId: null, roomExpiresAt: 0,
     // M3 (§6): active order mirrored from the server (online) or the local
     // engine in jobs.js (offline). {status, id, x, y, deadline, reward} | null.
     order: null
@@ -189,7 +192,7 @@
     police: 'assets/npc-police-crop.png', thug: 'assets/npc-thug-crop.png',
     student: 'assets/npc-student-crop.png',
     heroFull: 'assets/v3/hero-citizen-full.png', shipperFull: 'assets/v3/npc-shipper-full.png',
-    breadFull: 'assets/v3/npc-bread-full.png', taxiFull: 'assets/v3/npc-taxi-full.png',
+    breadFull: 'assets/v3/npc-bread-full.png', taxiFull: 'assets/v3/npc-taxi-standing-full.png',
     policeFull: 'assets/v3/npc-police-full.png', thugFull: 'assets/v3/npc-thug-full.png',
     studentFull: 'assets/v3/npc-student-full.png'
   };
@@ -248,12 +251,29 @@
   var localSurv = { hungerAcc: 0, hpLossAcc: 0, regenAcc: 0 }; // offline 1s accumulators
   var orderArrow = null; // world-space arrow pointing at the delivery target
   var faintPanelEl = null, faintTextEl = null, hospitalBtnEl = null;
+  // M4: online vehicle/motel state mirrored from the server (vehicleResult
+  // / motelResult messages + state patches), and taxi-customer sprites.
+  var onlineVehicles = { riding: '', bicycle: { owned: false }, motorbike: { owned: false } };
+  var onlineTaxiCustomers = []; // {npcId, x, y} from server NpcState taxi_customer
+  var onlineTaxi = { taxiMode: false, ride: null, customers: [], invitedBy: null };
+  var taxiSprites = {}; // npcId -> Pixi container (taxi customers, both modes)
+  var lastFaintSfxAt = 0; // M4: the 'fainted' broadcast + the state patch
+  // both fire for one faint — play the sound at most once per 3 s.
   var JOB_LABELS = { unemployed: 'Chưa có', shipper: 'Shipper', doctor: 'Bác sĩ', taxi_driver: 'Tài xế' };
 
   // SFX (M3 skills revision, audio-gen tier a): safe wrapper — audio must
   // never crash the game, and sounds only play for events involving me.
   function sfx(name) {
     try { if (typeof DTA_SFX !== 'undefined' && DTA_SFX[name]) DTA_SFX[name](); } catch (e) { /* ignore */ }
+  }
+
+  // M4: faint sound, throttled — the server 'fainted' broadcast and the
+  // state patch both fire for one faint; play at most once per 3 s.
+  function playFaintSfx() {
+    var now = Date.now();
+    if (now - lastFaintSfxAt < 3000) return;
+    lastFaintSfxAt = now;
+    sfx('faint');
   }
 
   // VFX (rename+VFX, Godot-VFX principles adapted to Pixi): safe wrapper —
@@ -851,6 +871,12 @@
         setRadialButton(0, 'Cửa hàng', 'shop', 0xe67e22, true);
       } else if (target.id === 'bank' || target.name.indexOf('Ngân Hàng') === 0) {
         setRadialButton(0, 'ATM', 'atm', 0x2980b9, true);
+      } else if (target.id === 'showroom' || target.name.indexOf('Showroom') === 0) {
+        // M4: Showroom — buy a bicycle / motorbike (shop panel, §8.1).
+        setRadialButton(0, 'Showroom', 'showroom', 0x9b59b6, true);
+      } else if (target.id === 'motel' || target.name.indexOf('Nhà Trọ') === 0) {
+        // M4: Motel — rent a room + chest (§8.2).
+        setRadialButton(0, 'Nhà trọ', 'motel', 0x16a085, true);
       } else {
         setRadialButton(0, 'Nói chuyện', 'talk', 0x2980b9, true);
       }
@@ -885,6 +911,22 @@
       if (typeof window.openAtmPanel === 'function') window.openAtmPanel();
       return;
     }
+    // M4: Showroom (buy vehicles — the shop panel's vehicle section) and
+    // Motel (rent a room + chest). Online the motel panel asks the server
+    // for its status first so it shows server state, not the local wallet.
+    if (action === 'showroom') {
+      closeRadial();
+      if (typeof window.openShopPanel === 'function') window.openShopPanel();
+      return;
+    }
+    if (action === 'motel') {
+      closeRadial();
+      if (netMode === 'online' && typeof NetClient !== 'undefined' && NetClient.sendMotel) {
+        NetClient.sendMotel('status', {});
+      }
+      if (typeof window.openMotelPanel === 'function') window.openMotelPanel();
+      return;
+    }
     if (action === 'report') {
       // M1: report only logs (no server endpoint yet)
       console.log('[report] player reported', t.id || t.name, 'by', playerState.name);
@@ -893,7 +935,12 @@
     }
     if (action === 'revive') {
       if (t.kind === 'player' && t.isFainted && netMode === 'online' && typeof NetClient !== 'undefined' && NetClient.connected) {
-        NetClient.sendInteract(t.id, 'revive');
+        // M4 (§18.5, PROPOSAL): the doctor plays the rhythm-tap mini-game
+        // first; the result (accuracy %) rides along with the revive, and
+        // the server adds +20 HP when accuracy >= 90%.
+        closeRadial();
+        if (typeof Jobs !== 'undefined' && Jobs.startReviveGame) Jobs.startReviveGame(t.id);
+        else NetClient.sendInteract(t.id, 'revive');
         sfx('click');
         showBubble(t.x, t.y, 'Đang cấp cứu ' + t.name + '…', 3000);
       } else if (t.kind === 'player' && t.isFainted) {
@@ -1464,6 +1511,20 @@
     return { dx: ix, dy: iy, len: len, wantSprint: !!(keys['ShiftLeft'] || keys['ShiftRight'] || sprintTouch) };
   }
 
+  // M4 (§8.1): speed of the ridden vehicle from the server-synced state
+  // (fuel/durability). 0 fuel (motorbike) / 0 durability (bicycle) = push
+  // speed 180. Shared M3.vehicleSpeed is the source of truth when loaded.
+  function currentRideSpeed() {
+    var ridingId = playerState.vehicleId || '';
+    if (!ridingId) return WALK_SPEED;
+    if (typeof M3 !== 'undefined' && M3.vehicleSpeed) {
+      return M3.vehicleSpeed(ridingId, playerState.fuel, playerState.durability);
+    }
+    if (ridingId === 'motorbike') return (playerState.fuel > 0) ? 324 : 180;
+    if (ridingId === 'bicycle') return (playerState.durability > 0) ? 234 : 180;
+    return WALK_SPEED;
+  }
+
   function updatePlayer(dt) {
     var inp = readInput();
     var ix = inp.dx, iy = inp.dy, len = inp.len;
@@ -1481,18 +1542,41 @@
 
     // input shape (Colyseus-ready): {dx, dy, sprint}
     // M3 (§7.4 step 3, same as server): sprint is blocked below 10 stamina.
-    var sprinting = inp.wantSprint && len > 0.1 && playerState.stamina >= 10;
-    var speed = sprinting ? SPRINT_SPEED : WALK_SPEED;
-    if (playerState.hunger < 20) speed *= 0.7;
+    // M4: sprint is on foot only — a ridden vehicle never sprints; the
+    // speed comes from the vehicle (bicycle 234 / motorbike 324, pushed
+    // 180 at 0 fuel/durability), then the Hunger x0.7 factor (§3.2.2).
+    var ridingId = playerState.vehicleId || '';
+    var sprinting = inp.wantSprint && len > 0.1 && playerState.stamina >= 10 && !ridingId;
+    var speed;
+    if (sprinting) speed = SPRINT_SPEED;
+    else if (ridingId) speed = currentRideSpeed();
+    else if (netMode !== 'online' && typeof Economy !== 'undefined' && Economy.ridingSpeed) speed = Economy.ridingSpeed();
+    else speed = WALK_SPEED;
+    if (typeof M3 !== 'undefined' && M3.speedWithHunger) speed = M3.speedWithHunger(speed, playerState.hunger);
+    else if (playerState.hunger < 20) speed *= 0.7;
     var input = { dx: ix, dy: iy, sprint: sprinting };
     lastInput = { dx: ix, dy: iy, sprint: sprinting, len: len };
 
+    var ox = playerState.x, oy = playerState.y;
     var nx = playerState.x + input.dx * speed * dt;
     var ny = playerState.y + input.dy * speed * dt;
     if (tryMove(nx, playerState.y, 14)) playerState.x = nx;
     if (tryMove(playerState.x, ny, 14)) playerState.y = ny;
     playerState.x = Math.max(20, Math.min(MAP_W - 20, playerState.x));
     playerState.y = Math.max(20, Math.min(MAP_H - 20, playerState.y));
+    // M4 (§8.1, offline): drain fuel/durability by distance travelled.
+    if (netMode !== 'online' && ridingId && typeof Economy !== 'undefined' && Economy.rideDistance) {
+      var moved = Math.hypot(playerState.x - ox, playerState.y - oy);
+      var drain = Economy.rideDistance(moved);
+      if (drain.outOfFuel) {
+        appendChatLog('', '', 'Hết xăng — tốc độ về 180 px/s (đẩy xe). Đổ xăng 5.000đ/bình ở Cửa Hàng.', true);
+        sfx('expire');
+      }
+      if (drain.wornOut) {
+        appendChatLog('', '', 'Xe đạp hỏng (độ bền 0%) — tốc độ về 180 px/s. Sửa 10.000đ ở Cửa Hàng.', true);
+        sfx('expire');
+      }
+    }
     playerState.vx = input.dx * speed;
     playerState.vy = input.dy * speed;
     playerState.anim = len > 0.1 ? (sprinting ? 'run' : 'walk') : 'idle';
@@ -1869,7 +1953,7 @@
 
   // M3 (§3.5): the 5-step tutorial quest from the guide NPC.
   var TUTORIAL_QUEST = [
-    '1. Nói chuyện với NPC Hướng Dẫn — nhận 50.000đ vốn khởi nghiệp',
+    '1. Nói chuyện với NPC Hướng Dẫn — nhận 80.000đ vốn khởi nghiệp',
     '2. Mua 1 Bánh mì ở Cửa Hàng Tiện Lợi và ăn (+40 Độ no)',
     '3. Làm Shipper: nhận 1 đơn ở Kho Hàng và giao thành công',
     '4. Gửi 20.000đ vào Bank tại ATM',
@@ -2085,6 +2169,12 @@
     // authoritative stats from the server
     playerState.hp = p.hp; playerState.hunger = p.hunger; playerState.stamina = p.stamina;
     playerState.cash = p.cash; playerState.bank = p.bank; playerState.isFainted = p.isFainted;
+    // M4: vehicle / taxi / motel state from the server.
+    if (p.vehicleId !== undefined) playerState.vehicleId = p.vehicleId || null;
+    if (p.fuel !== undefined) playerState.fuel = p.fuel;
+    if (p.durability !== undefined) playerState.durability = p.durability;
+    if (p.passengerId !== undefined) playerState.passengerId = p.passengerId || null;
+    if (p.roomExpiresAt !== undefined) playerState.roomExpiresAt = p.roomExpiresAt;
     // M3: job + active order (server-authoritative, §6 state lives in state).
     if (p.job) playerState.job = p.job;
     if (p.orderStatus === 'accepted') {
@@ -2095,11 +2185,13 @@
     } else playerState.order = null;
     // M3 (§3.2.3): track when fainting started — the faint panel counts
     // down from it and the hospital button enables after 10 s.
-    // Rename+VFX: the false->true edge is also the ONLINE self-faint event
-    // (the server sends no 'fainted' message — the known SFX gap from the
-    // M3 skills audit — so the faint VFX hooks here, on the edge).
+    // M4: the false->true edge is ALSO the online self-faint event. The
+    // sound now comes from the server 'fainted' broadcast (onFainted,
+    // the M3-gap fix); this edge plays it too as a fallback, throttled
+    // to once per 3 s so a faint never plays twice.
     if (p.isFainted && !faintInfo) {
       faintInfo = { at: Date.now(), until: Date.now() + 60000 };
+      playFaintSfx();
       vfx('faint', p.x, p.y, player);
     }
     if (!p.isFainted && faintInfo) { vfx('unfaint', player); faintInfo = null; }
@@ -2143,6 +2235,21 @@
   }
 
   function syncNpc(n) {
+    // M4: NPC taxi customers (server-spawned while the room has < 4 real
+    // players and a driver has "Nhận khách" on) get their own sprite so
+    // the driver can see and drive to them. They are NOT in npcs[].
+    if (n.type === 'taxi_customer') {
+      syncTaxiCustomerSprite(n.id, n.x, n.y);
+      var found = false;
+      for (var i = 0; i < onlineTaxiCustomers.length; i++) {
+        if (onlineTaxiCustomers[i].npcId === n.id) {
+          onlineTaxiCustomers[i].x = n.x; onlineTaxiCustomers[i].y = n.y; found = true;
+        }
+      }
+      if (!found) onlineTaxiCustomers.push({ npcId: n.id, x: n.x, y: n.y });
+      onlineTaxi.customers = onlineTaxiCustomers;
+      return;
+    }
     // map server NPC ids onto the local M0 NPC objects
     var local = null;
     if (n.id === 'npc-guide') local = tutorialNpc ? tutorialNpc.userData : null;
@@ -2156,6 +2263,39 @@
       if (local.container) local.container.position.set(n.x, n.y);
     }
     local.tx = n.x; local.ty = n.y;
+  }
+
+  // M4: one sprite per taxi customer (NPC or offline local). Created on
+  // demand, removed when the customer is picked up / despawns. Offline
+  // customers come from Jobs.getTaxiCustomers(); online ones from syncNpc.
+  function syncTaxiCustomerSprite(id, x, y) {
+    if (!world) return;
+    var spr = taxiSprites[id];
+    if (!spr) {
+      spr = makeFullBody(TEX.studentFull, 'Khách vãng lai');
+      spr.position.set(x, y);
+      world.addChild(spr);
+      taxiSprites[id] = spr;
+    }
+    spr.position.set(x, y);
+  }
+  function removeTaxiCustomerSprite(id) {
+    var spr = taxiSprites[id];
+    if (!spr) return;
+    if (world) world.removeChild(spr);
+    delete taxiSprites[id];
+  }
+  function updateTaxiCustomerSprites() {
+    if (netMode === 'online') return; // online: syncNpc drives the sprites
+    if (typeof Jobs === 'undefined' || !Jobs.getTaxiCustomers) return;
+    var seen = {};
+    Jobs.getTaxiCustomers().forEach(function (c) {
+      seen[c.id] = true;
+      syncTaxiCustomerSprite(c.id, c.x, c.y);
+    });
+    Object.keys(taxiSprites).forEach(function (id) {
+      if (!seen[id]) removeTaxiCustomerSprite(id);
+    });
   }
 
   function initNet() {
@@ -2180,7 +2320,14 @@
       },
       onNpcAdded: function (n) { syncNpc(n); },
       onNpcChanged: function (n) { syncNpc(n); },
-      onNpcRemoved: function (id) { /* NPCs persist in M1; ignore */ },
+      onNpcRemoved: function (id) {
+        // M4: a picked-up / despawned taxi customer loses its sprite.
+        if (taxiSprites[id]) {
+          removeTaxiCustomerSprite(id);
+          onlineTaxiCustomers = onlineTaxiCustomers.filter(function (c) { return c.npcId !== id; });
+          onlineTaxi.customers = onlineTaxiCustomers;
+        }
+      },
       onChatMessage: function (msg) { deliverChat(msg); },
       onChatError: function (err) {
         appendChatLog('', '', 'Không gửi được tin nhắn: ' + (err && err.error ? err.error : 'lỗi không rõ'), true);
@@ -2195,6 +2342,7 @@
       },
       onRevived: function (msg) {
         var text = msg.byName + ' đã hồi sinh một công dân.';
+        if (msg.bonusHp > 0) text += ' (cấp cứu theo nhịp xuất sắc: +' + msg.bonusHp + ' HP, tổng ' + msg.hp + ' HP)';
         if (msg.reward > 0) text += ' (thưởng ' + Math.floor(msg.reward).toLocaleString('vi-VN') + 'đ)';
         else if (msg.reason && msg.reason !== 'OK') text += ' (không thưởng: ' + msg.reason + ')';
         appendChatLog('', '', text, true);
@@ -2294,6 +2442,133 @@
         appendChatLog('', '', 'Có người ngất xỉu: ' + msg.name + ' tại (' +
           Math.round(msg.x) + ', ' + Math.round(msg.y) + ') — Bác sĩ tới cứu ngay!', true);
       },
+      // M4: explicit 'fainted' broadcast — THE fix for the known M3 gap
+      // (online self-faint played no sound). Self-faint -> faint SFX +
+      // chat line; other players' faints are silent for me (doctors
+      // already get faint_alert). Throttled in playFaintSfx (once / 3 s)
+      // because the state patch also fires the same edge.
+      onFainted: function (msg) {
+        if (!msg) return;
+        if (msg.playerId === mySessionId) {
+          playFaintSfx();
+          appendChatLog('', '', 'Bạn đã ngất xỉu! Mất 50% tiền mặt. Gọi bác sĩ trong chat, hoặc bấm "Về Bệnh viện" sau 10s.', true);
+        }
+      },
+      // M4: vehicle results (buy / mount / dismount / refuel / repair /
+      // status / out_of_fuel / worn_out).
+      onVehicleResult: function (msg) {
+        if (!msg) return;
+        if (typeof msg.cash === 'number') playerState.cash = msg.cash;
+        if (typeof msg.bank === 'number') playerState.bank = msg.bank;
+        if (msg.ok && msg.action === 'status' && msg.vehicles) {
+          onlineVehicles = {
+            riding: msg.riding || '',
+            bicycle: msg.vehicles.bicycle || { owned: false },
+            motorbike: msg.vehicles.motorbike || { owned: false },
+          };
+        } else if (msg.ok && msg.action === 'buy') {
+          var bought = msg.vehicleId === 'motorbike' ? 'xe máy' : 'xe đạp';
+          appendChatLog('', '', 'Đã mua ' + bought + ' (' + Math.floor(msg.price).toLocaleString('vi-VN') + 'đ). Xe đang đỗ ở Showroom — tới gần rồi bấm Lên xe (phím E).', true);
+          sfx('deliver');
+          if (typeof NetClient !== 'undefined' && NetClient.sendVehicle) NetClient.sendVehicle('status', {});
+        } else if (msg.ok && msg.action === 'mount') {
+          appendChatLog('', '', 'Đã lên ' + (msg.vehicleId === 'motorbike' ? 'xe máy (324 px/s)' : 'xe đạp (234 px/s)') + '.', true);
+          sfx('accept');
+        } else if (msg.ok && msg.action === 'dismount') {
+          appendChatLog('', '', 'Đã xuống xe — xe đỗ tại chỗ này.', true);
+          sfx('click');
+        } else if (msg.ok && msg.action === 'refuel') {
+          appendChatLog('', '', 'Đã đổ đầy bình xăng (đi được 8.000 px).', true);
+          sfx('deliver');
+        } else if (msg.ok && msg.action === 'repair') {
+          appendChatLog('', '', 'Đã sửa xe đạp — độ bền 100%.', true);
+          sfx('deliver');
+        } else if (msg.ok && (msg.action === 'out_of_fuel' || msg.action === 'worn_out')) {
+          appendChatLog('', '', msg.message || 'Xe không chạy được nữa.', true);
+          sfx('expire');
+        } else if (!msg.ok) {
+          var why = msg.error === 'TOO_FAR' && msg.x !== undefined
+            ? 'Xe đang đỗ ở (' + Math.round(msg.x) + ', ' + Math.round(msg.y) + ') — tới gần trong 80 px rồi lên xe.'
+            : (typeof Jobs !== 'undefined' && Jobs.jobErrText ? Jobs.jobErrText(msg) : 'Xe lỗi: ' + (msg.error || 'không rõ'));
+          appendChatLog('', '', why, true);
+          sfx('error');
+        }
+        if (typeof Jobs !== 'undefined' && Jobs.render) Jobs.render();
+      },
+      // M4: taxi results (toggle / invite / accept / pickup / dropoff /
+      // status / ride_ended).
+      onTaxiResult: function (msg) {
+        if (!msg) return;
+        if (msg.action === 'toggle' && msg.ok) {
+          onlineTaxi.taxiMode = !!msg.taxiMode;
+          appendChatLog('', '', msg.taxiMode ? 'Đã bật "Nhận khách" — khách vãng lai sẽ xuất hiện ở các ngã tư.' : 'Đã tắt "Nhận khách".', true);
+        } else if (msg.action === 'invited' && msg.ok) {
+          onlineTaxi.invitedBy = msg.driverId;
+          appendChatLog('', '', msg.driverName + ' mời bạn lên xe ôm — mở bảng NGHỀ rồi bấm "Lên xe" để đồng ý (30s).', true);
+          sfx('alert');
+        } else if (msg.action === 'accept' && msg.ok) {
+          onlineTaxi.invitedBy = null;
+          appendChatLog('', '', 'Bạn đang ngồi sau xe ' + msg.driverName + ' — bấm "Trả khách" trong bảng NGHỀ để xuống (tính cước theo quãng đường).', true);
+          sfx('accept');
+        } else if (msg.action === 'pickup' && msg.ok) {
+          onlineTaxi.ride = { kind: 'npc', passengerId: msg.npcId, poiName: msg.poiName, destX: msg.destX, destY: msg.destY, distancePx: 0 };
+          appendChatLog('', '', 'Đã đón khách — chở tới ' + (msg.poiName || 'điểm đến') + '. Cước 1.000đ/100 px, tối thiểu 5.000đ.', true);
+          sfx('accept');
+        } else if (msg.action === 'dropoff' && msg.ok) {
+          onlineTaxi.ride = null;
+          if (typeof msg.cash === 'number') playerState.cash = msg.cash;
+          appendChatLog('', '', 'Trả khách xong! Cước ' + Math.floor(msg.fare).toLocaleString('vi-VN') + 'đ' +
+            (msg.nightBonus ? ' + phụ cấp đêm ' + Math.floor(msg.nightBonus).toLocaleString('vi-VN') + 'đ' : '') +
+            ' = +' + Math.floor(msg.received).toLocaleString('vi-VN') + 'đ.', true);
+          sfx('deliver');
+          vfx('deliver', playerState.x, playerState.y, '+' + Math.floor(msg.received).toLocaleString('vi-VN') + 'đ');
+        } else if (msg.action === 'status' && msg.ok) {
+          onlineTaxi.taxiMode = !!msg.taxiMode;
+          onlineTaxi.ride = msg.ride || null;
+          onlineTaxiCustomers = (msg.customers || []).map(function (c) { return { npcId: c.npcId, x: c.x, y: c.y }; });
+          onlineTaxi.customers = onlineTaxiCustomers;
+          if (msg.invitedBy) onlineTaxi.invitedBy = msg.invitedBy;
+        } else if (!msg.ok) {
+          if (msg.error === 'PASSENGER_LEFT' || msg.error === 'DRIVER_LEFT') {
+            onlineTaxi.ride = null;
+            appendChatLog('', '', msg.error === 'PASSENGER_LEFT' ? 'Khách đã xuống xe giữa đường — chuyến xe kết thúc (không tính cước).' : 'Tài xế đã rời đi — chuyến xe kết thúc.', true);
+          } else if (msg.error !== 'DECLINED') {
+            appendChatLog('', '', typeof Jobs !== 'undefined' && Jobs.jobErrText ? Jobs.jobErrText(msg) : 'Taxi lỗi: ' + (msg.error || 'không rõ'), true);
+            sfx('error');
+          }
+        }
+        if (typeof Jobs !== 'undefined') {
+          if (Jobs.setOnlineTaxi) Jobs.setOnlineTaxi(onlineTaxi);
+          else if (Jobs.render) Jobs.render();
+        }
+      },
+      // M4: motel results (rent / renew / chest_put / chest_take / status).
+      onMotelResult: function (msg) {
+        if (!msg) return;
+        if (typeof msg.cash === 'number') playerState.cash = msg.cash;
+        if (typeof msg.bank === 'number') playerState.bank = msg.bank;
+        if (msg.ok && (msg.action === 'rent' || msg.action === 'renew')) {
+          appendChatLog('', '', (msg.action === 'rent' ? 'Đã thuê phòng trọ 50.000đ / 24h' : 'Đã gia hạn phòng trọ') +
+            ' — hết hạn ' + new Date(msg.expiresAt).toLocaleString('vi-VN') + '. Điểm hồi sinh của bạn là phòng trọ.', true);
+          sfx('deliver');
+          if (typeof Economy !== 'undefined' && Economy.setOnlineMotelStatus) {
+            Economy.setOnlineMotelStatus({ expiresAt: msg.expiresAt, chest: {} });
+          }
+        } else if (msg.ok && msg.action === 'status') {
+          if (typeof Economy !== 'undefined' && Economy.setOnlineMotelStatus) {
+            Economy.setOnlineMotelStatus({ expiresAt: msg.expiresAt, chestState: msg.chestState, chest: msg.chest || {} });
+          }
+        } else if (msg.ok && (msg.action === 'chest_put' || msg.action === 'chest_take')) {
+          if (typeof Economy !== 'undefined' && Economy.setOnlineMotelStatus) {
+            Economy.setOnlineMotelStatus({ chest: msg.chest || {} });
+          }
+          sfx('click');
+        } else if (!msg.ok) {
+          appendChatLog('', '', typeof Jobs !== 'undefined' && Jobs.jobErrText ? Jobs.jobErrText(msg) : 'Nhà trọ lỗi: ' + (msg.error || 'không rõ'), true);
+          sfx('error');
+        }
+        if (typeof Economy !== 'undefined' && Economy.renderMotel) Economy.renderMotel();
+      },
       onWorldTime: function (minutes) { if (netMode === 'online') worldTime = minutes; },
       // M2: server economy results (starter_grant / shop_buy / atm_transfer /
       // use_item). Server is authoritative for cash/bank when online.
@@ -2354,7 +2629,7 @@
       setNetStatus('Online…');
       setStartStatus('Online — đã kết nối máy chủ');
       // M2: ask the server for the (once-per-session) starter grant — the
-      // server starts Cash = 0 and grants 50.000đ here; syncSelf then keeps
+      // server starts Cash = 0 and grants 80.000đ here; syncSelf then keeps
       // the server value authoritative.
       if (typeof NetClient.sendEconomy === 'function') NetClient.sendEconomy('starter_grant', {});
     }).catch(function (err) {
@@ -2383,12 +2658,12 @@
     await loadTextures();
 
     // M2: economy first — starter grant (once) + local wallet load, before
-    // the HUD reads playerState.cash. Falls back to the old 50.000đ only if
+    // the HUD reads playerState.cash. Falls back to the old 80.000đ only if
     // the economy module fails to load at all.
     try {
       if (typeof Economy !== 'undefined') Economy.init(playerState, function () { return worldTime; });
-      else playerState.cash = 50000;
-    } catch (e) { console.warn('[economy] init failed, fallback cash 50000:', e); playerState.cash = 50000; }
+      else playerState.cash = 80000;
+    } catch (e) { console.warn('[economy] init failed, fallback cash 80000:', e); playerState.cash = 80000; }
 
     buildWorld();
     buildNightOverlay();
@@ -2413,6 +2688,18 @@
           sendJob: function (job) {
             if (typeof NetClient !== 'undefined' && NetClient.sendJob) NetClient.sendJob(job);
           },
+          // M4: vehicles / taxi / doctor revive mini-game (online).
+          sendVehicle: function (action, extra) {
+            if (typeof NetClient !== 'undefined' && NetClient.sendVehicle) NetClient.sendVehicle(action, extra);
+          },
+          sendTaxi: function (action, extra) {
+            if (typeof NetClient !== 'undefined' && NetClient.sendTaxi) NetClient.sendTaxi(action, extra);
+          },
+          sendRevive: function (targetId, pct) {
+            if (typeof NetClient !== 'undefined' && NetClient.sendInteract) NetClient.sendInteract(targetId, 'revive', { minigamePct: pct });
+          },
+          getOnlineVehicle: function () { return onlineVehicles; },
+          getTaxiCustomers: function () { return onlineTaxiCustomers; },
           getWorldTime: function () { return worldTime; },
           sys: function (msg) { appendChatLog('', '', msg, true); },
           economy: (typeof Economy !== 'undefined') ? Economy : null
@@ -2475,6 +2762,14 @@
         e.preventDefault();
         if (chatOpen) { if (chatEls.input) chatEls.input.focus(); }
         else openChat();
+        return;
+      }
+      // M4 (§8.1): E mounts / dismounts the nearest owned vehicle.
+      if (e.code === 'KeyE' && started && !e.repeat) {
+        if (typeof Jobs !== 'undefined') {
+          if (playerState.vehicleId) Jobs.dismountCurrent();
+          else Jobs.mountNearest();
+        }
         return;
       }
       keys[e.code] = true;
@@ -2547,6 +2842,7 @@
         updateNPCs(dt);
         updateAnimals(dt);
         updateRemotePlayers(dt);
+        updateTaxiCustomerSprites();
         moveTick(dt);
         // M3: offline Shipper countdown/expiry, delivery arrow, faint panel.
         if (typeof Jobs !== 'undefined' && Jobs.tick) Jobs.tick(dt);

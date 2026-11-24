@@ -8,12 +8,17 @@
 
    Verified SRS examples (see server/test/test.js):
      deliverySeconds: 500px/180 -> 33s, 2000px/180 -> 41s, 3200px/180 -> 48s,
-                      3200px/540 -> 36s   (Math.round(dist/speed + 30))
+                      4800px/234 -> 51s, 4800px/324 -> 45s
+                      (Math.round(dist/speed + 30))
      deliveryReward:  500px -> 15.000đ day / 19.500đ night (clamped minimum)
                       2000px -> 16.000đ day / 20.800đ night
                       3200px -> 19.000đ day / 24.700đ night
      faintLoss:       50.000 -> lose 25.000
-     hospitalFee:     25.000 remaining -> fee 22.500 (10.000 + 12.500) */
+     hospitalFee:     25.000 remaining -> fee 22.500 (10.000 + 12.500)
+   M4 (SRS v2.2 §7.2, §8): vehicles (bicycle 234 px/s, motorbike 324 px/s),
+   taxi fares, motel rent/chest, doctor revive mini-game. LOCKED numbers
+   live here next to the M3 ones; PROPOSAL numbers are named constants
+   marked ĐỀ XUẤT so they are one-line tunable (see docs/m4.md). */
 (function (root, factory) {
   var Colliders = null;
   if (typeof module !== 'undefined' && module.exports) {
@@ -25,7 +30,17 @@
 })(typeof self !== 'undefined' ? self : this, function (Colliders) {
   'use strict';
 
-  var WALK_SPEED = 180, SPRINT_SPEED = 300, BIKE_SPEED = 540;
+  // M4 (SRS v2.2 §7.2, §8.1 — LOCKED): walk 180 is the base; bicycle
+  // +30%, motorbike +80% over WALK (v2.1's 540 px/s = 300 x 1.8 over
+  // SPRINT is superseded). BIKE_SPEED is kept as an alias of the bicycle
+  // speed so old callers keep working (its old value 540 is gone).
+  var WALK_SPEED = 180, SPRINT_SPEED = 300;
+  var BICYCLE_SPEED = 234, MOTORBIKE_SPEED = 324, BIKE_SPEED = 234;
+  var SHOWROOM_POS = { x: 1665, y: 2850 }; // Showroom Xe Máy POI (Map v2)
+  var MOTEL_POS = { x: 2910, y: 2865 };    // Khu Nhà Trọ POI (Map v2)
+  var MOUNT_RANGE = 80;   // must be within 80 px of the parked vehicle (§8.1)
+  var PICKUP_RANGE = 120; // taxi pickup / revive range for passengers
+  var DROPOFF_RANGE = 80; // must be within 80 px of the destination
   var WAREHOUSE_POS = { x: 4155, y: 2910 }; // Kho Hàng Trung Tâm POI (Map v2: building centre)
   var HOSPITAL_POS = { x: 4125, y: 1635 };  // Bệnh Viện POI (Map v2: building centre)
   var FAINT_SECONDS = 60;
@@ -34,8 +49,57 @@
   var REVIVE_RANGE = 120, TALK_RANGE = 120, SHIPPER_RANGE = 300, DELIVER_RANGE = 80;
   var ORDER_CANCEL_COOLDOWN_S = 10;
   var DOCTOR_COOLDOWN_S = 60;      // between rewarded revives (§3.4.3)
-  var DOCTOR_HOURLY_CAP = 3;        // rewarded revives of same victim / hour
+  // v2.2 (supersedes v2.1: 3 rewarded revives / hour): max 2 REWARDED
+  // revives of the SAME victim per 60 minutes; 3rd+ still revives but 0đ.
+  var DOCTOR_PAIR_CAP_60MIN = 2;
+  var DOCTOR_HOURLY_CAP = 2; // old name, same value — kept for callers
   var COLLUSION_PAIR_PER_DAY = 10;  // same pair > 10 revives/day -> flag
+
+  // ---- M4 vehicles (SRS v2.2 §7.2, §8.1) — LOCKED prices/speeds ----
+  var BICYCLE_PRICE = 250000, MOTORBIKE_PRICE = 1000000;
+  var WALK_CAPACITY_KG = 10; // kg/order on foot (base for the +30%/+80%)
+  // Capacity kg/order — ĐỀ XUẤT (§7.2: principle locked, kg table awaits
+  // approval): bicycle 13 kg (+30%), motorbike 18 kg (+80%).
+  var BICYCLE_CAPACITY_KG = 13, MOTORBIKE_CAPACITY_KG = 18;
+  // Fuel — LOCKED price, PROPOSAL range is the SRS §8.1 figure itself
+  // (1 bình 5.000đ đi 8.000 px): motorbike only, bicycle has no fuel.
+  var FUEL_PRICE = 5000, FUEL_RANGE_PX = 8000; // 100% fuel = 8000 px
+  // Bicycle durability — ĐỀ XUẤT (§8.1): 100% lasts 50.000 px, one repair
+  // 10.000đ at the shop. At 0% the bicycle rides at walk speed (180).
+  var BIKE_DURABILITY_PX = 50000, BIKE_REPAIR_PRICE = 10000;
+  // Shipper pay by vehicle — LOCKED (user 2026-11-25 01:02): walk x1.00,
+  // bicycle x1.30, motorbike x2.00 (NOT x1.80 — only the pay multiplier is
+  // x2.00; motorbike speed/capacity stay +80%: 324 px/s, 18 kg).
+  // Example: a 16.000đ walk order pays 20.800đ by bicycle, 32.000đ by
+  // motorbike. One-line tunable constants, but no longer proposals.
+  var SHIPPER_PAY_MULT_FOOT = 1.00;
+  var SHIPPER_PAY_MULT_BICYCLE = 1.30;   // LOCKED
+  var SHIPPER_PAY_MULT_MOTORBIKE = 2.00; // LOCKED (user 2026-11-25 01:02)
+
+  // ---- M4 taxi (SRS v2.2 §3.4.2, §4.1 — LOCKED) ----
+  var TAXI_FARE_PER_100PX = 1000, TAXI_FARE_MIN = 5000, TAXI_FARE_MAX = 20000;
+  var TAX_RATE = 0.05; // LOCKED 2026-11-25: all taxes 5%, BUYER pays.
+  var TAXI_NIGHT_MULT = 1.30, TAXI_NIGHT_BONUS_MAX = 6000; // SYSTEM pays
+  var TAXI_MIN_TRIP_PX = 600; // ĐỀ XUẤT (§16.6): trips shorter than this
+  // do not count for fare (anti-teleport/farm check) — enforced as a
+  // minimum-distance check, fare itself still uses TAXI_FARE_MIN.
+  var TAXI_CUSTOMER_MAX = 4; // max NPC wandering customers at once (§10.2)
+  var TAXI_CUSTOMER_DESPAWN_S = 300; // despawn after 5 min unpicked (§10.2)
+
+  // ---- M4 motel (SRS v2.2 §8.2, §4.1 — LOCKED) ----
+  var MOTEL_RENT = 50000, MOTEL_RENT_HOURS = 24; // 50.000đ / 24h real
+  var MOTEL_CHEST_SLOTS = 10; // 10 item slots; no vehicles, no money
+  var MOTEL_CHEST_HOLD_HOURS = 24; // after expiry: held 24h (locked),
+  // then deleted for good (§8.2). Renewing inside the hold re-opens it.
+  var MOTEL_RENEW_MAX_DAYS = 7; // max 7 days of advance renewal (§8.2)
+
+  // ---- M4 doctor revive mini-game (SRS v2.2 §18.5 — PROPOSAL impl.) ----
+  // Rhythm tap; >=90% accuracy -> victim +20 HP on top of the locked 30 HP
+  // floor. Reward 25.000đ, 60 s cooldown and the 2/60min pair cap are
+  // UNCHANGED — the mini-game only changes revive quality, never money.
+  var REVIVE_BASE_HP = 30;
+  var REVIVE_MINIGAME_BONUS_HP = 20; // ĐỀ XUẤT
+  var REVIVE_MINIGAME_PASS_PCT = 90; // ĐỀ XUẤT
 
   // Delivery-point POIs (§6.2: random coordinate near a POI). Warehouse is
   // the pickup point, so it is never a delivery target. Coords are Map v2
@@ -112,19 +176,109 @@
   // §3.4.3 doctor revive reward, all server-side. Inputs are explicit so
   // tests can pass fake timestamps:
   //   job: the reviver's job; now: ms epoch; lastRewardedAt: ms epoch of
-  //   the doctor's last REWARDED revive (0 = none); revivesLastHour: number
-  //   of REWARDED revives of THIS victim in the last hour.
+  //   the doctor's last REWARDED revive (0 = none); revivesLast60Min:
+  //   number of REWARDED revives of THIS victim in the last 60 minutes.
   // Returns {reward, reason}: reason is 'OK' | 'NOT_DOCTOR' | 'COOLDOWN' |
-  // 'HOURLY_CAP'.
-  function doctorRewardCheck(job, now, lastRewardedAt, revivesLastHour) {
+  // 'PAIR_CAP' (v2.2: 2 rewarded revives of the same victim / 60 min).
+  function doctorRewardCheck(job, now, lastRewardedAt, revivesLast60Min) {
     if (job !== 'doctor') return { reward: 0, reason: 'NOT_DOCTOR' };
     if (lastRewardedAt && now - lastRewardedAt < DOCTOR_COOLDOWN_S * 1000) {
       return { reward: 0, reason: 'COOLDOWN' };
     }
-    if (revivesLastHour >= DOCTOR_HOURLY_CAP) {
-      return { reward: 0, reason: 'HOURLY_CAP' };
+    if (revivesLast60Min >= DOCTOR_PAIR_CAP_60MIN) {
+      return { reward: 0, reason: 'PAIR_CAP' };
     }
     return { reward: DOCTOR_REWARD, reason: 'OK' };
+  }
+
+  // ---- M4: vehicles (§7.2, §8.1) ----
+  // Speed of a vehicle id: '' (on foot) -> WALK; 'bicycle' -> 234;
+  // 'motorbike' -> 324. A motorbike with 0 fuel or a bicycle with 0%
+  // durability is PUSHED at walk speed (180) — pass fuel/durability in.
+  function vehicleSpeed(vehicleId, fuelPct, durabilityPct) {
+    if (vehicleId === 'motorbike') return (fuelPct === undefined || fuelPct > 0) ? MOTORBIKE_SPEED : WALK_SPEED;
+    if (vehicleId === 'bicycle') return (durabilityPct === undefined || durabilityPct > 0) ? BICYCLE_SPEED : WALK_SPEED;
+    return WALK_SPEED;
+  }
+  // Hunger 20–1: x0.7 on EVERY speed (§3.2.2 table, v2.2 values).
+  function speedWithHunger(speed, hunger) {
+    return (hunger >= 1 && hunger < 20) ? Math.round(speed * 0.7) : speed;
+  }
+  function vehicleCapacityKg(vehicleId) {
+    if (vehicleId === 'bicycle') return BICYCLE_CAPACITY_KG;
+    if (vehicleId === 'motorbike') return MOTORBIKE_CAPACITY_KG;
+    return WALK_CAPACITY_KG;
+  }
+  function vehiclePrice(vehicleId) {
+    if (vehicleId === 'bicycle') return BICYCLE_PRICE;
+    if (vehicleId === 'motorbike') return MOTORBIKE_PRICE;
+    return 0;
+  }
+  // Shipper pay multiplier by vehicle — ĐỀ XUẤT (§6.4), one-line tunable.
+  function shipperPayMultiplier(vehicleId) {
+    if (vehicleId === 'bicycle') return SHIPPER_PAY_MULT_BICYCLE;
+    if (vehicleId === 'motorbike') return SHIPPER_PAY_MULT_MOTORBIKE;
+    return SHIPPER_PAY_MULT_FOOT;
+  }
+  // §6.4 reward with the LOCKED vehicle multiplier applied, rounded.
+  function deliveryRewardFor(distancePx, isNight, vehicleId) {
+    return Math.round(deliveryReward(distancePx, isNight) * shipperPayMultiplier(vehicleId));
+  }
+  // Fuel/durability drain by distance travelled (px). 100% fuel = 8000 px
+  // (1% = 80 px); 100% bicycle durability = 50.000 px (1% = 500 px).
+  function fuelAfterDistance(fuelPct, distancePx) {
+    return Math.max(0, fuelPct - distancePx / (FUEL_RANGE_PX / 100));
+  }
+  function durabilityAfterDistance(durabilityPct, distancePx) {
+    return Math.max(0, durabilityPct - distancePx / (BIKE_DURABILITY_PX / 100));
+  }
+
+  // ---- M4: taxi (§3.4.2, §4.1, §9) ----
+  // Fare for a trip of distancePx (actual distance travelled): 1.000đ per
+  // 100 px, clamped 5.000–20.000đ. Tax is 5% — the BUYER (passenger) pays
+  // it on top of the fare (LOCKED 2026-11-25). At night the SYSTEM pays
+  // the driver a +30% bonus, capped at 6.000đ (§9); the passenger never
+  // pays the bonus. Returns {fare, tax, passengerPays, driverReceives,
+  // nightBonus}. For an NPC passenger the fare is paid by SYSTEM (the NPC
+  // has no wallet) — driverReceives is the same either way.
+  function taxiFare(distancePx, isNight) {
+    var fare = clamp(Math.round(distancePx / 100) * TAXI_FARE_PER_100PX, TAXI_FARE_MIN, TAXI_FARE_MAX);
+    var tax = Math.round(fare * TAX_RATE);
+    var nightBonus = isNight ? Math.min(Math.round(fare * (TAXI_NIGHT_MULT - 1)), TAXI_NIGHT_BONUS_MAX) : 0;
+    return {
+      fare: fare, tax: tax,
+      passengerPays: fare + tax, driverReceives: fare + nightBonus,
+      nightBonus: nightBonus
+    };
+  }
+
+  // ---- M4: motel (§8.2) ----
+  // Room expiry: rent/renew adds 24h. Renewal extends from the OLD
+  // expiresAt (not from now), max 7 days ahead.
+  function motelRenewExpiry(currentExpiresAt, now) {
+    var base = Math.max(currentExpiresAt || 0, now);
+    return base + MOTEL_RENT_HOURS * 3600 * 1000;
+  }
+  function motelIsActive(expiresAt, now) {
+    return !!expiresAt && now < expiresAt;
+  }
+  // Chest state: 'none' (never rented), 'active' (room rented),
+  // 'held' (expired < 24h ago — locked, renew re-opens), 'deleted'
+  // (expired >= 24h ago — contents gone for good).
+  function motelChestState(expiresAt, now) {
+    if (!expiresAt) return 'none';
+    if (now < expiresAt) return 'active';
+    if (now < expiresAt + MOTEL_CHEST_HOLD_HOURS * 3600 * 1000) return 'held';
+    return 'deleted';
+  }
+
+  // ---- M4: doctor revive mini-game (§18.5, PROPOSAL) ----
+  // accuracyPct 0–100 (clamped; the server never trusts a client number
+  // above the cap — the bonus itself is bounded at +20 HP either way).
+  // >= 90% -> +20 HP on top of the locked 30 HP floor; otherwise +0.
+  function doctorMinigameBonus(accuracyPct) {
+    var pct = clamp(accuracyPct || 0, 0, 100);
+    return pct >= REVIVE_MINIGAME_PASS_PCT ? REVIVE_MINIGAME_BONUS_HP : 0;
   }
 
   // §3.4.3: same doctor/victim pair reviving > 10 times in one day is
@@ -140,6 +294,9 @@
 
   return {
     WALK_SPEED: WALK_SPEED, SPRINT_SPEED: SPRINT_SPEED, BIKE_SPEED: BIKE_SPEED,
+    BICYCLE_SPEED: BICYCLE_SPEED, MOTORBIKE_SPEED: MOTORBIKE_SPEED,
+    SHOWROOM_POS: SHOWROOM_POS, MOTEL_POS: MOTEL_POS,
+    MOUNT_RANGE: MOUNT_RANGE, PICKUP_RANGE: PICKUP_RANGE, DROPOFF_RANGE: DROPOFF_RANGE,
     WAREHOUSE_POS: WAREHOUSE_POS, HOSPITAL_POS: HOSPITAL_POS,
     FAINT_SECONDS: FAINT_SECONDS, HOSPITAL_BUTTON_DELAY_S: HOSPITAL_BUTTON_DELAY_S,
     DOCTOR_REWARD: DOCTOR_REWARD,
@@ -147,12 +304,45 @@
     SHIPPER_RANGE: SHIPPER_RANGE, DELIVER_RANGE: DELIVER_RANGE,
     ORDER_CANCEL_COOLDOWN_S: ORDER_CANCEL_COOLDOWN_S,
     DOCTOR_COOLDOWN_S: DOCTOR_COOLDOWN_S, DOCTOR_HOURLY_CAP: DOCTOR_HOURLY_CAP,
+    DOCTOR_PAIR_CAP_60MIN: DOCTOR_PAIR_CAP_60MIN,
     COLLUSION_PAIR_PER_DAY: COLLUSION_PAIR_PER_DAY,
+    // M4 vehicles (locked prices/speeds; proposal multipliers marked above)
+    BICYCLE_PRICE: BICYCLE_PRICE, MOTORBIKE_PRICE: MOTORBIKE_PRICE,
+    WALK_CAPACITY_KG: WALK_CAPACITY_KG,
+    BICYCLE_CAPACITY_KG: BICYCLE_CAPACITY_KG, MOTORBIKE_CAPACITY_KG: MOTORBIKE_CAPACITY_KG,
+    FUEL_PRICE: FUEL_PRICE, FUEL_RANGE_PX: FUEL_RANGE_PX,
+    BIKE_DURABILITY_PX: BIKE_DURABILITY_PX, BIKE_REPAIR_PRICE: BIKE_REPAIR_PRICE,
+    SHIPPER_PAY_MULT_FOOT: SHIPPER_PAY_MULT_FOOT,
+    SHIPPER_PAY_MULT_BICYCLE: SHIPPER_PAY_MULT_BICYCLE,
+    SHIPPER_PAY_MULT_MOTORBIKE: SHIPPER_PAY_MULT_MOTORBIKE,
+    // M4 taxi (locked fares/tax; min-trip distance is a proposal)
+    TAXI_FARE_PER_100PX: TAXI_FARE_PER_100PX, TAXI_FARE_MIN: TAXI_FARE_MIN,
+    TAXI_FARE_MAX: TAXI_FARE_MAX, TAX_RATE: TAX_RATE,
+    TAXI_NIGHT_MULT: TAXI_NIGHT_MULT, TAXI_NIGHT_BONUS_MAX: TAXI_NIGHT_BONUS_MAX,
+    TAXI_MIN_TRIP_PX: TAXI_MIN_TRIP_PX,
+    TAXI_CUSTOMER_MAX: TAXI_CUSTOMER_MAX, TAXI_CUSTOMER_DESPAWN_S: TAXI_CUSTOMER_DESPAWN_S,
+    // M4 motel (locked)
+    MOTEL_RENT: MOTEL_RENT, MOTEL_RENT_HOURS: MOTEL_RENT_HOURS,
+    MOTEL_CHEST_SLOTS: MOTEL_CHEST_SLOTS, MOTEL_CHEST_HOLD_HOURS: MOTEL_CHEST_HOLD_HOURS,
+    MOTEL_RENEW_MAX_DAYS: MOTEL_RENEW_MAX_DAYS,
+    // M4 doctor mini-game (proposal)
+    REVIVE_BASE_HP: REVIVE_BASE_HP, REVIVE_MINIGAME_BONUS_HP: REVIVE_MINIGAME_BONUS_HP,
+    REVIVE_MINIGAME_PASS_PCT: REVIVE_MINIGAME_PASS_PCT,
     DELIVERY_POIS: DELIVERY_POIS, JOB_LABELS: JOB_LABELS, JOBS: JOBS,
     clamp: clamp, dist: dist,
     deliverySeconds: deliverySeconds, deliveryReward: deliveryReward,
+    deliveryRewardFor: deliveryRewardFor,
     faintLoss: faintLoss, hospitalFee: hospitalFee, deductFee: deductFee,
     isNightWorld: isNightWorld, pickDeliveryPoint: pickDeliveryPoint,
-    doctorRewardCheck: doctorRewardCheck, collusionFlagged: collusionFlagged
+    doctorRewardCheck: doctorRewardCheck, collusionFlagged: collusionFlagged,
+    vehicleSpeed: vehicleSpeed, speedWithHunger: speedWithHunger,
+    vehicleCapacityKg: vehicleCapacityKg, vehiclePrice: vehiclePrice,
+    shipperPayMultiplier: shipperPayMultiplier,
+    fuelAfterDistance: fuelAfterDistance,
+    durabilityAfterDistance: durabilityAfterDistance,
+    taxiFare: taxiFare,
+    motelRenewExpiry: motelRenewExpiry, motelIsActive: motelIsActive,
+    motelChestState: motelChestState,
+    doctorMinigameBonus: doctorMinigameBonus
   };
 });

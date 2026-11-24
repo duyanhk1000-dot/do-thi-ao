@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Cuộc Sống Ảo — M3 • Shipper + Sinh tồn • Colyseus</title>
+<title>Cuộc Sống Ảo — M4 • Xe cộ + Taxi + Bác sĩ + Nhà trọ • Colyseus</title>
 <style>
   html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #1a2b1a; touch-action: none; }
   canvas { display: block; touch-action: none; }
@@ -68,7 +68,24 @@
   #hospitalBtn { background: #e74c3c; color: #fff; border: 2px solid #fff; border-radius: 8px;
     font-size: 14px; font-weight: bold; padding: 10px 18px; cursor: pointer; margin-top: 6px; }
   #hospitalBtn:disabled { opacity: 0.45; cursor: default; }
-  /* --- shop / ATM panels (M2, DOM overlay — money input is DOM per Hybrid UI) --- */
+  /* --- revive mini-game (M4 §18.5, PROPOSAL): rhythm tap, 10 beats --- */
+  #revivePanel { position: fixed; left: 50%; top: 38%; transform: translate(-50%, -50%); z-index: 9;
+    width: min(340px, calc(100vw - 24px)); background: rgba(10,30,20,0.94);
+    border: 2px solid #27ae60; border-radius: 12px; color: #fff; font-family: sans-serif;
+    text-align: center; padding: 16px 14px; display: none; box-sizing: border-box; }
+  #revivePanel.open { display: block; }
+  #revivePanel h3 { margin: 0 0 6px; font-size: 17px; }
+  #revivePanel p { margin: 6px 0; font-size: 13px; color: #c8e6c9; }
+  #reviveBar { position: relative; height: 26px; margin: 12px 4px; background: rgba(255,255,255,0.12);
+    border-radius: 8px; overflow: hidden; }
+  #reviveZone { position: absolute; top: 0; bottom: 0; left: 42%; width: 16%;
+    background: rgba(39,174,96,0.55); }
+  #reviveMarker { position: absolute; top: 0; bottom: 0; left: 0; width: 4px; background: #fff; }
+  #reviveTap { background: #27ae60; color: #fff; border: 2px solid #fff; border-radius: 8px;
+    font-size: 16px; font-weight: bold; padding: 12px 22px; cursor: pointer; }
+  #reviveTap:disabled { opacity: 0.45; cursor: default; }
+  #reviveCancel { background: transparent; color: #ccc; border: 1px solid #777; border-radius: 8px;
+    font-size: 13px; padding: 8px 14px; cursor: pointer; margin-left: 6px; }
   .econPanel { position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 8;
     width: min(360px, calc(100vw - 20px)); max-height: 62vh; overflow-y: auto;
     background: rgba(10,18,28,0.94); border: 1px solid rgba(255,255,255,0.25); border-radius: 12px;
@@ -136,10 +153,18 @@
   <button id="hospitalBtn" type="button" disabled>Về Bệnh viện</button>
   <p>Ngất mất 50% tiền mặt. Về Bệnh viện: phí 10.000đ + 50% tiền mặt còn lại.</p>
 </div>
+<div id="revivePanel">
+  <h3>Cấp cứu theo nhịp ❤️</h3>
+  <p id="reviveText">Bấm đúng nhịp tim (kim trong vạch xanh) — 10 nhịp, đúng ≥ 90% thì nạn nhân hồi thêm +20 HP (ngoài 30 HP gốc).</p>
+  <div id="reviveBar"><div id="reviveZone"></div><div id="reviveMarker"></div></div>
+  <p id="reviveScore">Nhịp 0/10 • Đúng 0</p>
+  <button id="reviveTap" type="button">BẤM THEO NHỊP</button>
+  <button id="reviveCancel" type="button">Hủy</button>
+</div>
 <div id="jobPanel" class="econPanel">
   <button type="button" class="closeBtn" id="jobClose">✕</button>
   <h3>Nghề nghiệp</h3>
-  <div class="sub">Chọn 1 nghề. Shipper giao hàng kiếm tiền, Bác sĩ cứu người được thưởng, Tài xế chở khách (cơ chế M4).</div>
+  <div class="sub">Chọn 1 nghề. Shipper giao hàng kiếm tiền, Bác sĩ cứu người được thưởng, Tài xế chở khách (M4).</div>
   <div class="walletLine" id="jobCurrent">Nghề hiện tại: Chưa có</div>
   <div class="jobPickRow">
     <button type="button" id="jobPick_shipper">Shipper</button>
@@ -152,6 +177,30 @@
     <button type="button" id="jobComplete">Giao hàng</button>
     <button type="button" id="jobCancel">Hủy đơn</button>
   </div>
+  <div class="walletLine" id="jobVehicleInfo" style="margin-top:10px;">Xe: chưa có — mua ở Showroom (250.000đ xe đạp / 1.000.000đ xe máy).</div>
+  <div class="jobOrderBtns">
+    <button type="button" id="vehicleMount" style="background:#8e44ad;">Lên xe (E)</button>
+    <button type="button" id="vehicleDismount" style="background:#7f8c8d;">Xuống xe</button>
+  </div>
+  <div class="walletLine" id="taxiInfo" style="margin-top:10px;">Taxi: chọn nghề Tài xế + có xe máy rồi bật "Nhận khách".</div>
+  <div class="jobOrderBtns">
+    <button type="button" id="taxiToggle" style="background:#2980b9;">Nhận khách: TẮT</button>
+    <button type="button" id="taxiPickup" style="background:#27ae60;">Đón khách</button>
+    <button type="button" id="taxiDropoff" style="background:#e67e22;">Trả khách</button>
+  </div>
+</div>
+<div id="motelPanel" class="econPanel">
+  <button type="button" class="closeBtn" id="motelClose">✕</button>
+  <h3>Khu Nhà Trọ</h3>
+  <div class="sub">Thuê phòng 50.000đ / 24h thực — rương 10 ô + điểm hồi sinh riêng. Hết hạn: rương khóa 24h rồi xóa.</div>
+  <div class="walletLine" id="motelWallet"></div>
+  <div class="walletLine" id="motelInfo">Chưa thuê phòng.</div>
+  <div class="jobOrderBtns">
+    <button type="button" id="motelRent" style="background:#16a085;">Thuê phòng 50.000đ</button>
+    <button type="button" id="motelRenew" style="background:#2980b9;">Gia hạn +24h</button>
+  </div>
+  <div id="motelChest" style="margin-top:8px;"></div>
+  <div class="econMsg" id="motelMsg"></div>
 </div>
 <div id="shopPanel" class="econPanel">
   <button type="button" class="closeBtn" id="shopClose">✕</button>
@@ -160,6 +209,10 @@
   <div class="walletLine" id="shopWallet"></div>
   <button type="button" class="shopBtn" id="shopAtmBtn" style="background:#8e44ad;margin-bottom:8px;">ATM — Gửi / Rút tiền</button>
   <div id="shopList"></div>
+  <h3 style="margin-top:10px;">Showroom Xe Máy</h3>
+  <div class="sub">Xe đạp 250.000đ (234 px/s) • Xe máy 1.000.000đ (324 px/s). Mua tại Showroom, đổ xăng / sửa xe tại Cửa Hàng.</div>
+  <div id="vehicleList"></div>
+  <div class="econMsg" id="vehicleNote"></div>
   <div class="econMsg" id="shopMsg"></div>
 </div>
 <div id="atmPanel" class="econPanel">

@@ -21,6 +21,16 @@ defineTypes(PlayerState, {
   bank: 'number',
   isFainted: 'boolean',
   vehicleId: 'string', // '' when not in a vehicle
+  // M4 vehicles (§8.1): which vehicle is ridden ('bicycle' | 'motorbike'
+  // | ''), fuel % (motorbike only, 100% = 8000 px) and durability %
+  // (bicycle only, 100% = 50.000 px). 0 fuel / 0 durability = pushed.
+  vehicleType: 'string',
+  fuel: 'number',
+  durability: 'number',
+  // M4 taxi (§3.4.2): sessionId of the passenger aboard ('' = none).
+  passengerId: 'string',
+  // M4 motel (§8.2): ms epoch when the rented room expires (0 = no room).
+  roomExpiresAt: 'number',
   // M3 Shipper (§6): active order mirrored in Colyseus state so the client
   // can draw the delivery arrow + countdown without a separate message.
   // 'none' when no order is active; deadline is a ms epoch.

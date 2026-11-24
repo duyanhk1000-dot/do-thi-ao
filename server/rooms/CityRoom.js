@@ -40,11 +40,20 @@ const SHOP_ITEMS = {
   banh_mi: { price: 15000, dayPrice: 13500, hunger: 40, stamina: 0 },
   nuoc_tang_luc: { price: 10000, dayPrice: 10000, hunger: 0, stamina: 50 },
 };
-const STARTER_GRANT = 50000;
+const STARTER_GRANT = 80000; // v2.2 (supersedes v2.1: 50.000đ)
 const ATM_MIN = 1000, ATM_MAX = 200000, ATM_DAY_MAX = 500000;
 const SHOP_POS = { x: 2895, y: 1590 }; // Cửa Hàng Tiện Lợi POI (Map v2)
 const BANK_POS = { x: 1650, y: 1590 }; // Ngân Hàng & ATM POI (Map v2)
+const SHOWROOM_POS = { x: 1665, y: 2850 }; // Showroom Xe Máy POI (Map v2)
+const MOTEL_POS = { x: 2910, y: 2865 }; // Khu Nhà Trọ POI (Map v2)
 const ECON_RANGE = 300;
+// M4 taxi: NPC customers wait at road intersections (road centres 1230 /
+// 2430 / 3630 — bands 1140/2340/3540 + 180 wide).
+const TAXI_INTERSECTIONS = [
+  { x: 1230, y: 1230 }, { x: 2430, y: 1230 }, { x: 3630, y: 1230 },
+  { x: 1230, y: 2430 }, { x: 3630, y: 2430 },
+  { x: 1230, y: 3630 }, { x: 2430, y: 3630 }, { x: 3630, y: 3630 },
+];
 const ECON_RATE_LIMIT = 5; // max 5 economy messages / minute per player (SRS §12.3)
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 
@@ -98,6 +107,24 @@ class CityRoom extends Room {
       this.orderPool.push({ id: 'ord-' + i, targetX: t.x, targetY: t.y, poiName: t.poiName, lockedBy: null });
     }
     this.orderSeq = 0;
+    // M4 vehicles (§8.1, in-memory mirror of the assets table shape §5.3):
+    // sessionId -> { bicycle: {fuel, durability, x, y} | null,
+    //               motorbike: {fuel, durability, x, y} | null }
+    // A vehicle with x/y is PARKED there (null = never parked / at
+    // showroom). The ridden vehicle is player.vehicleId / vehicleType.
+    // NOTE: keyed by sessionId — a reconnect gets a NEW sessionId, so
+    // vehicles/motel do not survive a rejoin yet (Supabase assets wiring
+    // is M2/M5 work); the offline client persists them in localStorage.
+    this.vehicles = new Map();
+    // M4 motel (§8.2): sessionId -> { expiresAt, chest: Map(itemId->qty) }.
+    this.motel = new Map();
+    // M4 taxi (§3.4.2, §10.2): driver sessionIds with "Nhận khách" on,
+    // pending player invites, active rides, and NPC customers.
+    this.taxiMode = new Set(); // sessionId
+    this.taxiInvites = new Map(); // targetId -> {driverId, at}
+    this.taxiRides = new Map(); // driverId -> {passengerId, kind, npcId, destX, destY, poiName, distancePx, startedAt}
+    this.taxiCustomers = new Map(); // npcId -> {destX, destY, poiName, spawnedAt}
+    this.taxiCustomerSeq = 0;
     // M3: orders held when a player disconnects mid-order (§6.2: 30 s to
     // reconnect, then EXPIRED). sessionId -> {order, leftAt}.
     this.heldOrders = new Map();
@@ -184,9 +211,11 @@ class CityRoom extends Room {
       id: client.sessionId, name, x: spawn.x, y: spawn.y, vx: 0, vy: 0,
       anim: 'idle', job: 'unemployed', hp: 100, hunger: 100, stamina: 100,
       cash: 0, bank: 0, // M2 (SRS §4.5/§5.1): profile starts Cash = 0; the
-      // 50.000đ starter grant is applied once via starter_grant below
+      // 80.000đ starter grant is applied once via starter_grant below
       // (client local / Supabase rpc_starter_grant when connected)
-      isFainted: false, vehicleId: '', chatBubble: '', chatBubbleUntil: 0, avatar,
+      isFainted: false, vehicleId: '', vehicleType: '', fuel: 100,
+      durability: 100, passengerId: '', roomExpiresAt: 0,
+      chatBubble: '', chatBubbleUntil: 0, avatar,
       orderStatus: 'none', orderId: '', orderX: 0, orderY: 0, orderDeadline: 0, orderReward: 0,
     });
     this.state.players.set(client.sessionId, p);
@@ -203,6 +232,7 @@ class CityRoom extends Room {
       order: null, cancelCooldownUntil: 0, completedOrderIds: new Set(),
       doctor: { lastRewardedAt: 0, revives: [] },
     });
+    this.vehicles.set(client.sessionId, { bicycle: null, motorbike: null });
     stats.humanPlayers += 1;
     console.log(`[city] join ${p.name} (${client.sessionId}) players=${stats.humanPlayers}`);
 
@@ -217,6 +247,10 @@ class CityRoom extends Room {
     // M3: job choice + Shipper orders (§3.4, §6).
     this.onMessage('job', (c, msg) => this._onJob(c, msg));
     this.onMessage('shipper', (c, msg) => this._onShipper(c, msg));
+    // M4: vehicles (§8.1), taxi (§3.4.2), motel (§8.2).
+    this.onMessage('vehicle', (c, msg) => this._onVehicle(c, msg));
+    this.onMessage('taxi', (c, msg) => this._onTaxi(c, msg));
+    this.onMessage('motel', (c, msg) => this._onMotel(c, msg));
     if (ALLOW_TEST) this.onMessage('__test_set', (c, msg) => this._onTestSet(c, msg));
   }
 
@@ -234,6 +268,18 @@ class CityRoom extends Room {
     if (typeof msg.bank === 'number') player.bank = Math.max(0, Math.floor(msg.bank));
     if (typeof msg.x === 'number') player.x = clamp(msg.x, 20, 4780); // Map v2: 4800-20
     if (typeof msg.y === 'number') player.y = clamp(msg.y, 20, 4780);
+    // M4 test hook: set the ridden vehicle's fuel / durability so
+    // out-of-fuel and worn-out-bicycle behaviour can be tested directly.
+    if (typeof msg.fuel === 'number') {
+      player.fuel = clamp(msg.fuel, 0, 100);
+      const v = this.vehicles.get(client.sessionId);
+      if (v && v.motorbike) v.motorbike.fuel = player.fuel;
+    }
+    if (typeof msg.durability === 'number') {
+      player.durability = clamp(msg.durability, 0, 100);
+      const v = this.vehicles.get(client.sessionId);
+      if (v && v.bicycle) v.bicycle.durability = player.durability;
+    }
     if (typeof msg.faintMsLeft === 'number' && player.isFainted) {
       sv.faintedUntil = Date.now() + msg.faintMsLeft;
     }
@@ -241,8 +287,35 @@ class CityRoom extends Room {
   }
 
   onLeave(client, consented) {
-    // M3 (§6.2): a mid-order disconnect holds the order 30 s for reconnect;
-    // the 1 s tick expires it after that (see _secondTick heldOrders sweep).
+    // M4: end any taxi ride involving the leaver — a passenger who leaves
+    // strands the driver (no fare: the trip never finished), a driver who
+    // leaves strands the passenger. The vehicle stays parked where the
+    // player left it (§8.1: no loss on faint/disconnect).
+    const rideAsDriver = this.taxiRides.get(client.sessionId);
+    if (rideAsDriver) {
+      const pass = this.state.players.get(rideAsDriver.passengerId);
+      if (pass) pass.passengerId = '';
+      this._endTaxiRide(client.sessionId, 'DRIVER_LEFT', false);
+    }
+    for (const [driverId, ride] of this.taxiRides) {
+      if (ride.passengerId === client.sessionId) {
+        this._endTaxiRide(driverId, 'PASSENGER_LEFT', false);
+        break;
+      }
+    }
+    this.taxiInvites.delete(client.sessionId);
+    for (const [targetId, inv] of this.taxiInvites) {
+      if (inv.driverId === client.sessionId) this.taxiInvites.delete(targetId);
+    }
+    this.taxiMode.delete(client.sessionId);
+    const player = this.state.players.get(client.sessionId);
+    const veh = this.vehicles.get(client.sessionId);
+    if (player && veh && player.vehicleId && veh[player.vehicleId]) {
+      veh[player.vehicleId].x = player.x; veh[player.vehicleId].y = player.y;
+      veh[player.vehicleId].fuel = player.fuel;
+      veh[player.vehicleId].durability = player.durability;
+    }
+    // A held order (if any) survives the disconnect so it can be resumed.
     const job = this.jobs.get(client.sessionId);
     if (job && job.order) {
       this.heldOrders.set(client.sessionId, { order: job.order, leftAt: Date.now() });
@@ -252,6 +325,8 @@ class CityRoom extends Room {
     this.economy.delete(client.sessionId);
     this.survival.delete(client.sessionId);
     this.jobs.delete(client.sessionId);
+    this.vehicles.delete(client.sessionId);
+    this.motel.delete(client.sessionId);
     stats.humanPlayers = Math.max(0, stats.humanPlayers - 1);
     console.log(`[city] leave ${client.sessionId} players=${stats.humanPlayers}`);
   }
@@ -441,12 +516,18 @@ class CityRoom extends Room {
     const dt = clamp((now - data.lastMoveAt) / 1000, 0, 0.5);
     data.lastMoveAt = now;
 
-    // 3. Stamina: sprint blocked below 10 (fall back to walk).
+    // 3. Stamina: sprint blocked below 10 (fall back to walk). Sprint is
+    // on foot only — a ridden vehicle never sprints (§7.2 speeds).
     let sprinting = sprint && len > 0;
     if (sprinting && player.stamina < 10) sprinting = false;
+    if (player.vehicleId) sprinting = false;
     data.sprinting = sprinting; // M3: the 1 s tick regens stamina while idle
-    let speed = sprinting ? SPRINT_SPEED : WALK_SPEED;
-    if (player.hunger < 20) speed *= 0.7; // SRS §3.2.2
+    // M4 (§7.2, §8.1): speed comes from the ridden vehicle — bicycle 234,
+    // motorbike 324, pushed (0 fuel / 0 durability) 180 — then the Hunger
+    // 20–1 x0.7 factor (§3.2.2) applies to every speed.
+    let speed = sprinting ? SPRINT_SPEED
+      : M3.vehicleSpeed(player.vehicleId, player.fuel, player.durability);
+    speed = M3.speedWithHunger(speed, player.hunger);
     if (sprinting) player.stamina = clamp(player.stamina - 5 * dt, 0, 100);
     else player.stamina = clamp(player.stamina + 3 * dt, 0, 100);
 
@@ -463,9 +544,37 @@ class CityRoom extends Room {
       else { nx = player.x; ny = player.y; }
     }
     nx = clamp(nx, 20, 4780); ny = clamp(ny, 20, 4780);
+    const movedPx = Math.hypot(nx - player.x, ny - player.y);
     player.x = nx; player.y = ny;
     player.vx = dx * speed; player.vy = dy * speed;
     player.anim = len === 0 ? 'idle' : (sprinting ? 'sprint' : 'walk');
+    // M4 (§8.1): drain fuel / durability by distance actually travelled.
+    // Motorbike: 100% fuel = 8000 px. Bicycle: 100% durability = 50.000 px.
+    // Hitting 0 drops the rider to push speed (180) on the next move.
+    if (movedPx > 0 && player.vehicleId) {
+      if (player.vehicleId === 'motorbike' && player.fuel > 0) {
+        player.fuel = Math.round(M3.fuelAfterDistance(player.fuel, movedPx) * 10) / 10;
+        if (player.fuel <= 0) {
+          player.fuel = 0;
+          this._sendTo(client.sessionId, 'vehicle_result', {
+            type: 'vehicle', ok: true, action: 'out_of_fuel',
+            message: 'Hết xăng — tốc độ về 180 px/s (đẩy xe). Đổ xăng 5.000đ/bình ở Cửa Hàng.',
+          });
+        }
+      } else if (player.vehicleId === 'bicycle' && player.durability > 0) {
+        player.durability = Math.round(M3.durabilityAfterDistance(player.durability, movedPx) * 10) / 10;
+        if (player.durability <= 0) {
+          player.durability = 0;
+          this._sendTo(client.sessionId, 'vehicle_result', {
+            type: 'vehicle', ok: true, action: 'worn_out',
+            message: 'Xe đạp hỏng (độ bền 0%) — tốc độ về 180 px/s. Sửa 10.000đ ở Cửa Hàng.',
+          });
+        }
+      }
+      // M4 taxi: the ride fare is charged on distance actually travelled.
+      const ride = this.taxiRides.get(client.sessionId);
+      if (ride) ride.distancePx += movedPx;
+    }
   }
 
   _violation(client, kind) {
@@ -620,16 +729,23 @@ class CityRoom extends Room {
         client.send('interact_error', { error: 'TOO_FAR' });
         return;
       }
-      target.hp = 30; target.stamina = 50; target.isFainted = false; target.anim = 'idle';
+      // M4 (§18.5, PROPOSAL impl.): the client may attach the rhythm-tap
+      // mini-game accuracy (0–100). >= 90% -> +20 HP on top of the locked
+      // 30 HP floor. The bonus is bounded server-side (never above +20),
+      // and the reward / cooldown / pair cap are unchanged.
+      const bonusHp = M3.doctorMinigameBonus(
+        (msg && typeof msg.minigamePct === 'number') ? msg.minigamePct : 0);
+      target.hp = M3.REVIVE_BASE_HP + bonusHp; target.stamina = 50; target.isFainted = false; target.anim = 'idle';
       const sv = this.survival.get(msg.targetId);
       if (sv) { sv.faintedUntil = 0; sv.faintedAt = 0; }
       // M3 (§3.4.3): only a doctor gets the 25.000đ SYSTEM reward, with
       // anti-farm caps. Anyone can revive, but a non-doctor earns 0đ.
       const reward = this._doctorReviveReward(client.sessionId, msg.targetId);
-      console.log(`[city] ${player.name} revived ${target.name} (reward ${reward.reward}đ, ${reward.reason})`);
+      console.log(`[city] ${player.name} revived ${target.name} (reward ${reward.reward}đ, ${reward.reason}, bonusHp +${bonusHp})`);
       this.broadcast('revived', {
         byId: client.sessionId, byName: player.name, targetId: msg.targetId,
         reward: reward.reward, reason: reward.reason, job: player.job,
+        bonusHp: bonusHp, hp: target.hp,
       });
     } else if (msg.action === 'hospital') {
       // M3 (§3.2.4): "Về Bệnh viện" — only for the fainted sender, only
@@ -662,7 +778,7 @@ class CityRoom extends Room {
           npcId: npc.id, name: npc.name, isGuide: true, x: npc.x, y: npc.y,
           text: 'Chào Công Dân mới! Nhiệm vụ tân thủ của bạn:',
           quest: [
-            '1. Nói chuyện với NPC Hướng Dẫn — nhận 50.000đ vốn khởi nghiệp',
+            '1. Nói chuyện với NPC Hướng Dẫn — nhận 80.000đ vốn khởi nghiệp',
             '2. Mua 1 Bánh mì ở Cửa Hàng Tiện Lợi và ăn (+40 Độ no)',
             '3. Làm Shipper: nhận 1 đơn ở Kho Hàng và giao thành công',
             '4. Gửi 20.000đ vào Bank tại ATM',
@@ -738,6 +854,505 @@ class CityRoom extends Room {
     console.log(`[city] ${player.name} hospital revive (fee ${after.paid}đ, cash now ${player.cash}, bank ${player.bank})`);
   }
 
+  // ---------------------------------------------------------------- M4 vehicles (§8.1)
+  // Deduct an amount from Cash first, then Bank (same rule as the hospital
+  // fee, §3.2.5). Returns {ok, paid} — ok is false when cash+bank < amount
+  // (nothing is deducted then: check first, deduct second).
+  _deductCashBank(player, amount) {
+    if (player.cash + player.bank < amount) return { ok: false, paid: 0 };
+    const after = M3.deductFee(player.cash, player.bank, amount);
+    player.cash = after.cash; player.bank = after.bank;
+    return { ok: true, paid: after.paid };
+  }
+  // Mirror the owned vehicles into the Colyseus state fields the client
+  // renders (vehicleType / fuel / durability / vehicleId).
+  _syncVehicle(player) {
+    const veh = this.vehicles.get(player.id);
+    if (!veh) return;
+    if (player.vehicleId && veh[player.vehicleId]) {
+      const v = veh[player.vehicleId];
+      player.vehicleType = player.vehicleId;
+      player.fuel = v.fuel; player.durability = v.durability;
+    } else {
+      player.vehicleId = ''; player.vehicleType = '';
+      player.fuel = 100; player.durability = 100;
+    }
+  }
+
+  _onVehicle(client, msg) {
+    const player = this.state.players.get(client.sessionId);
+    const veh = this.vehicles.get(client.sessionId);
+    const econ = this.economy.get(client.sessionId);
+    if (!player || !veh || !econ || !msg || typeof msg !== 'object') return;
+    const action = msg.action;
+    const send = (m) => client.send('vehicle_result', Object.assign({ type: 'vehicle' }, m));
+    const type = msg.vehicleId === 'bicycle' || msg.vehicleId === 'motorbike' ? msg.vehicleId : null;
+
+    if (action === 'buy') {
+      if (!type) { send({ ok: false, error: 'BAD_VEHICLE' }); return; }
+      if (veh[type]) { send({ ok: false, error: 'ALREADY_OWNED', vehicleId: type }); return; }
+      if (dist(player.x, player.y, SHOWROOM_POS.x, SHOWROOM_POS.y) > ECON_RANGE) {
+        send({ ok: false, error: 'TOO_FAR' }); return;
+      }
+      const price = M3.vehiclePrice(type);
+      const paid = this._deductCashBank(player, price);
+      if (!paid.ok) { send({ ok: false, error: 'INSUFFICIENT_FUNDS', need: price }); return; }
+      // Parked on the open lot SOUTH of the Showroom — the showroom
+      // building itself (x1425-1905, y2670-3030) is blocked, so parking at
+      // SHOWROOM_POS would strand the vehicle where nobody can mount it.
+      veh[type] = { fuel: 100, durability: 100, x: SHOWROOM_POS.x, y: SHOWROOM_POS.y + 270 };
+      this._econLog(econ, 'asset_buy', -price, { asset_type: 'vehicle', asset_code: type });
+      send({ ok: true, action: 'buy', vehicleId: type, cash: player.cash, bank: player.bank, price });
+      console.log(`[city] ${player.name} bought ${type} for ${price}đ`);
+      return;
+    }
+
+    if (action === 'mount') {
+      if (!type || !veh[type]) { send({ ok: false, error: 'NO_VEHICLE', vehicleId: type }); return; }
+      if (player.isFainted) { send({ ok: false, error: 'FAINTED' }); return; }
+      if (player.vehicleId) { send({ ok: false, error: 'ALREADY_RIDING', vehicleId: player.vehicleId }); return; }
+      const v = veh[type];
+      if (dist(player.x, player.y, v.x, v.y) > M3.MOUNT_RANGE) {
+        send({ ok: false, error: 'TOO_FAR', x: v.x, y: v.y }); return;
+      }
+      player.vehicleId = type;
+      this._syncVehicle(player);
+      send({ ok: true, action: 'mount', vehicleId: type, fuel: player.fuel, durability: player.durability });
+      return;
+    }
+
+    if (action === 'dismount') {
+      if (!player.vehicleId) { send({ ok: false, error: 'NOT_RIDING' }); return; }
+      const cur = player.vehicleId;
+      const v = veh[cur];
+      if (v) { v.x = player.x; v.y = player.y; v.fuel = player.fuel; v.durability = player.durability; }
+      // A passenger rides along: dropping the driver off ends the ride
+      // with the fare for the distance travelled so far.
+      if (this.taxiRides.has(client.sessionId)) this._completeTaxiRide(client.sessionId, 'DROPOFF');
+      player.vehicleId = '';
+      this._syncVehicle(player);
+      send({ ok: true, action: 'dismount', vehicleId: cur, x: player.x, y: player.y });
+      return;
+    }
+
+    if (action === 'refuel') {
+      if (!veh.motorbike) { send({ ok: false, error: 'NO_VEHICLE', vehicleId: 'motorbike' }); return; }
+      if (dist(player.x, player.y, SHOP_POS.x, SHOP_POS.y) > ECON_RANGE) {
+        send({ ok: false, error: 'TOO_FAR' }); return;
+      }
+      if (player.fuel >= 100 && player.vehicleId === 'motorbike') {
+        send({ ok: false, error: 'ALREADY_FULL' }); return;
+      }
+      const paid = this._deductCashBank(player, M3.FUEL_PRICE);
+      if (!paid.ok) { send({ ok: false, error: 'INSUFFICIENT_FUNDS', need: M3.FUEL_PRICE }); return; }
+      veh.motorbike.fuel = 100;
+      if (player.vehicleId === 'motorbike') player.fuel = 100;
+      this._econLog(econ, 'shop_buy', -M3.FUEL_PRICE, { item_id: 'fuel', qty: 1 });
+      send({ ok: true, action: 'refuel', cash: player.cash, bank: player.bank, fuel: 100 });
+      return;
+    }
+
+    if (action === 'repair') {
+      // Bicycle durability repair — ĐỀ XUẤT price (§8.1): 10.000đ.
+      if (!veh.bicycle) { send({ ok: false, error: 'NO_VEHICLE', vehicleId: 'bicycle' }); return; }
+      if (dist(player.x, player.y, SHOP_POS.x, SHOP_POS.y) > ECON_RANGE) {
+        send({ ok: false, error: 'TOO_FAR' }); return;
+      }
+      if (player.durability >= 100 && player.vehicleId === 'bicycle') {
+        send({ ok: false, error: 'ALREADY_FULL' }); return;
+      }
+      const paid = this._deductCashBank(player, M3.BIKE_REPAIR_PRICE);
+      if (!paid.ok) { send({ ok: false, error: 'INSUFFICIENT_FUNDS', need: M3.BIKE_REPAIR_PRICE }); return; }
+      veh.bicycle.durability = 100;
+      if (player.vehicleId === 'bicycle') player.durability = 100;
+      this._econLog(econ, 'shop_buy', -M3.BIKE_REPAIR_PRICE, { item_id: 'bike_repair', qty: 1 });
+      send({ ok: true, action: 'repair', cash: player.cash, bank: player.bank, durability: 100 });
+      return;
+    }
+
+    if (action === 'status') {
+      send({
+        ok: true, action: 'status',
+        vehicles: {
+          bicycle: veh.bicycle ? { owned: true, fuel: veh.bicycle.fuel, durability: veh.bicycle.durability, x: veh.bicycle.x, y: veh.bicycle.y } : { owned: false },
+          motorbike: veh.motorbike ? { owned: true, fuel: veh.motorbike.fuel, durability: veh.motorbike.durability, x: veh.motorbike.x, y: veh.motorbike.y } : { owned: false },
+        },
+        riding: player.vehicleId || '',
+        cash: player.cash, bank: player.bank,
+      });
+      return;
+    }
+
+    send({ ok: false, error: 'BAD_ACTION', action: action || null });
+  }
+
+  // ---------------------------------------------------------------- M4 taxi (§3.4.2, §10.2)
+  _spawnTaxiCustomer(now) {
+    const id = 'npc-taxi-' + (++this.taxiCustomerSeq);
+    // Stand on a SIDEWALK CORNER of a road intersection — the road centre
+    // itself is not an open point (Colliders.isOpenPoint rejects roads),
+    // so the customer waits at (intersection +/- 140 px), just off the
+    // asphalt, where the driver can reach them.
+    const corners = [[140, 140], [140, -140], [-140, 140], [-140, -140]];
+    for (let i = 0; i < 10; i++) {
+      const base = TAXI_INTERSECTIONS[Math.floor(Math.random() * TAXI_INTERSECTIONS.length)];
+      const c = corners[i % corners.length];
+      const x = base.x + c[0] + randRange(-30, 30), y = base.y + c[1] + randRange(-30, 30);
+      if (!Colliders.isOpenPoint(x, y)) continue;
+      const dest = M3.pickDeliveryPoint();
+      const npc = new NpcState();
+      Object.assign(npc, {
+        id, type: 'taxi_customer', name: 'Khách vãng lai',
+        x, y, targetX: x, targetY: y, avatar: 'student',
+      });
+      this.state.npcs.set(id, npc);
+      this.taxiCustomers.set(id, { destX: dest.x, destY: dest.y, poiName: dest.poiName, spawnedAt: now });
+      return id;
+    }
+    return null;
+  }
+
+  // 1 s tick: spawn/despawn NPC customers + auto-complete NPC rides.
+  _taxiTick(now) {
+    let humans = 0;
+    for (const [id] of this.state.players) if (!this.bots.has(id)) humans += 1;
+    const want = Math.max(0, Math.min(4 - humans, M3.TAXI_CUSTOMER_MAX));
+    // Despawn unpicked customers after 5 min (§10.2).
+    for (const [npcId, c] of this.taxiCustomers) {
+      if (now - c.spawnedAt > M3.TAXI_CUSTOMER_DESPAWN_S * 1000) {
+        this.taxiCustomers.delete(npcId);
+        this.state.npcs.delete(npcId);
+      }
+    }
+    if (this.taxiMode.size > 0) {
+      let guard = 0;
+      while (this.taxiCustomers.size < want && guard++ < 4) {
+        if (!this._spawnTaxiCustomer(now)) break;
+      }
+    }
+    // NPC ride auto-complete: driver within 80 px of the destination.
+    for (const [driverId, ride] of this.taxiRides) {
+      if (ride.kind !== 'npc') continue;
+      const driver = this.state.players.get(driverId);
+      if (!driver) { this.taxiRides.delete(driverId); continue; }
+      if (dist(driver.x, driver.y, ride.destX, ride.destY) <= M3.DROPOFF_RANGE) {
+        this._completeTaxiRide(driverId, 'DROPOFF');
+      }
+    }
+  }
+
+  // End a ride WITHOUT paying (passenger/driver left mid-trip).
+  _endTaxiRide(driverId, reason, paid) {
+    const ride = this.taxiRides.get(driverId);
+    if (!ride) return;
+    this.taxiRides.delete(driverId);
+    const driver = this.state.players.get(driverId);
+    if (driver) driver.passengerId = '';
+    if (ride.kind === 'player') {
+      const pass = this.state.players.get(ride.passengerId);
+      if (pass) pass.passengerId = '';
+    }
+    this._sendTo(driverId, 'taxi_result', { type: 'taxi', ok: false, error: reason, action: 'ride_ended' });
+    if (ride.kind === 'player') {
+      this._sendTo(ride.passengerId, 'taxi_result', { type: 'taxi', ok: false, error: reason, action: 'ride_ended' });
+    }
+  }
+
+  // Finish a ride WITH fare: fare = 1.000đ/100 px travelled (clamped
+  // 5.000–20.000đ), 5% tax paid by the passenger on top (LOCKED), driver
+  // gets fare + night bonus (SYSTEM, max 6.000đ). An NPC passenger's fare
+  // is paid by SYSTEM (the NPC has no wallet).
+  _completeTaxiRide(driverId, how) {
+    const ride = this.taxiRides.get(driverId);
+    if (!ride) return null;
+    this.taxiRides.delete(driverId);
+    const driver = this.state.players.get(driverId);
+    const econ = this.economy.get(driverId);
+    if (!driver || !econ) return null;
+    driver.passengerId = '';
+    const fare = M3.taxiFare(ride.distancePx, M3.isNightWorld(this.state.worldTime));
+    if (ride.kind === 'player') {
+      const pass = this.state.players.get(ride.passengerId);
+      const passEcon = this.economy.get(ride.passengerId);
+      if (pass && passEcon) {
+        pass.passengerId = '';
+        // Passenger pays fare + 5% tax; not enough money -> the driver
+        // gets only what was actually paid (fare part) + the SYSTEM night
+        // bonus — never negative, never debt, never a SYSTEM subsidy of
+        // the missing fare (same rule as the hospital fee).
+        const charged = this._deductCashBank(pass, fare.passengerPays);
+        const farePaid = Math.min(fare.fare, charged.paid);
+        const taxPaid = Math.max(0, charged.paid - fare.fare);
+        const driverGets = farePaid + fare.nightBonus;
+        driver.cash += driverGets;
+        this._econLog(passEcon, 'taxi_fare', -charged.paid, { driver_id: driverId, distance_px: Math.round(ride.distancePx) });
+        if (taxPaid > 0) this._econLog(passEcon, 'tax', -taxPaid, { taxi: true });
+        this._econLog(econ, 'taxi_fare', driverGets, { passenger_id: ride.passengerId, distance_px: Math.round(ride.distancePx) });
+        this._sendTo(ride.passengerId, 'taxi_result', {
+          type: 'taxi', ok: true, action: 'dropoff', fare: fare.fare, tax: fare.tax,
+          paid: charged.paid, driverName: driver.name,
+        });
+        this._sendTo(driverId, 'taxi_result', {
+          type: 'taxi', ok: true, action: 'dropoff', how: how || 'DROPOFF',
+          fare: fare.fare, tax: fare.tax, nightBonus: fare.nightBonus,
+          received: driverGets, distancePx: Math.round(ride.distancePx),
+          cash: driver.cash, bank: driver.bank,
+        });
+        console.log(`[city] taxi ${driver.name} completed player ride ${Math.round(ride.distancePx)}px fare ${fare.fare}đ (paid ${charged.paid}đ, +${fare.nightBonus}đ night)`);
+        return fare;
+      }
+    } else {
+      // NPC passenger: SYSTEM pays the fare; driver still gets the fare +
+      // night bonus (the city subsidises NPC rides so drivers earn even
+      // when the room is empty).
+      driver.cash += fare.driverReceives;
+      this._econLog(econ, 'taxi_fare', fare.driverReceives, {
+        passenger: 'npc', npc_id: ride.npcId, distance_px: Math.round(ride.distancePx),
+      });
+    }
+    this._sendTo(driverId, 'taxi_result', {
+      type: 'taxi', ok: true, action: 'dropoff', how: how || 'DROPOFF',
+      fare: fare.fare, tax: fare.tax, nightBonus: fare.nightBonus,
+      received: fare.driverReceives, distancePx: Math.round(ride.distancePx),
+      cash: driver.cash, bank: driver.bank,
+    });
+    console.log(`[city] taxi ${driver.name} completed ride ${Math.round(ride.distancePx)}px fare ${fare.fare}đ (+${fare.nightBonus}đ night)`);
+    return fare;
+  }
+
+  _onTaxi(client, msg) {
+    const player = this.state.players.get(client.sessionId);
+    const econ = this.economy.get(client.sessionId);
+    if (!player || !econ || !msg || typeof msg !== 'object') return;
+    const action = msg.action;
+    const now = Date.now();
+    const send = (m) => client.send('taxi_result', Object.assign({ type: 'taxi' }, m));
+
+    if (action === 'toggle') {
+      // "Nhận khách" mode: only for the taxi_driver job with a motorbike.
+      // Bicycle cannot carry a passenger (§8.1).
+      if (player.job !== 'taxi_driver') { send({ ok: false, error: 'NOT_TAXI_DRIVER' }); return; }
+      const veh = this.vehicles.get(client.sessionId);
+      if (!veh || !veh.motorbike) { send({ ok: false, error: 'NO_MOTORBIKE' }); return; }
+      const on = !this.taxiMode.has(client.sessionId);
+      if (on) this.taxiMode.add(client.sessionId);
+      else this.taxiMode.delete(client.sessionId);
+      send({ ok: true, action: 'toggle', taxiMode: on });
+      return;
+    }
+
+    if (action === 'invite') {
+      // Driver invites a real player to ride along.
+      if (player.job !== 'taxi_driver') { send({ ok: false, error: 'NOT_TAXI_DRIVER' }); return; }
+      if (player.vehicleId !== 'motorbike') { send({ ok: false, error: 'NOT_RIDING_MOTORBIKE' }); return; }
+      if (this.taxiRides.has(client.sessionId)) { send({ ok: false, error: 'ALREADY_RIDING' }); return; }
+      const target = msg.targetId ? this.state.players.get(msg.targetId) : null;
+      if (!target || this.bots.has(msg.targetId)) { send({ ok: false, error: 'INVALID_TARGET' }); return; }
+      if (target.isFainted) { send({ ok: false, error: 'TARGET_FAINTED' }); return; }
+      if (target.vehicleId) { send({ ok: false, error: 'TARGET_RIDING' }); return; }
+      if (dist(player.x, player.y, target.x, target.y) > M3.PICKUP_RANGE) {
+        send({ ok: false, error: 'TOO_FAR' }); return;
+      }
+      this.taxiInvites.set(msg.targetId, { driverId: client.sessionId, at: now });
+      this._sendTo(msg.targetId, 'taxi_result', {
+        type: 'taxi', ok: true, action: 'invited',
+        driverId: client.sessionId, driverName: player.name,
+      });
+      send({ ok: true, action: 'invite', targetId: msg.targetId });
+      return;
+    }
+
+    if (action === 'accept') {
+      const inv = this.taxiInvites.get(client.sessionId);
+      if (!inv || inv.driverId !== msg.driverId) { send({ ok: false, error: 'NO_INVITE' }); return; }
+      if (now - inv.at > 30000) {
+        this.taxiInvites.delete(client.sessionId);
+        send({ ok: false, error: 'INVITE_EXPIRED' }); return;
+      }
+      const driver = this.state.players.get(inv.driverId);
+      if (!driver || driver.vehicleId !== 'motorbike' || this.taxiRides.has(inv.driverId)) {
+        this.taxiInvites.delete(client.sessionId);
+        send({ ok: false, error: 'DRIVER_GONE' }); return;
+      }
+      if (dist(player.x, player.y, driver.x, driver.y) > M3.PICKUP_RANGE) {
+        send({ ok: false, error: 'TOO_FAR' }); return;
+      }
+      this.taxiInvites.delete(client.sessionId);
+      driver.passengerId = client.sessionId;
+      player.passengerId = inv.driverId;
+      this.taxiRides.set(inv.driverId, {
+        passengerId: client.sessionId, kind: 'player', npcId: null,
+        destX: 0, destY: 0, poiName: null, distancePx: 0, startedAt: now,
+      });
+      this._sendTo(inv.driverId, 'taxi_result', { type: 'taxi', ok: true, action: 'pickup', passengerId: client.sessionId, passengerName: player.name });
+      send({ ok: true, action: 'accept', driverId: inv.driverId, driverName: driver.name });
+      return;
+    }
+
+    if (action === 'decline') {
+      const inv = this.taxiInvites.get(client.sessionId);
+      if (inv) {
+        this.taxiInvites.delete(client.sessionId);
+        this._sendTo(inv.driverId, 'taxi_result', { type: 'taxi', ok: false, error: 'DECLINED', action: 'invite' });
+      }
+      send({ ok: true, action: 'decline' });
+      return;
+    }
+
+    if (action === 'pickup') {
+      // Driver picks up an NPC wandering customer.
+      if (player.job !== 'taxi_driver') { send({ ok: false, error: 'NOT_TAXI_DRIVER' }); return; }
+      if (player.vehicleId !== 'motorbike') { send({ ok: false, error: 'NOT_RIDING_MOTORBIKE' }); return; }
+      if (this.taxiRides.has(client.sessionId)) { send({ ok: false, error: 'ALREADY_RIDING' }); return; }
+      const cust = msg.npcId ? this.taxiCustomers.get(msg.npcId) : null;
+      const npc = msg.npcId ? this.state.npcs.get(msg.npcId) : null;
+      if (!cust || !npc) { send({ ok: false, error: 'INVALID_TARGET' }); return; }
+      if (dist(player.x, player.y, npc.x, npc.y) > M3.PICKUP_RANGE) {
+        send({ ok: false, error: 'TOO_FAR' }); return;
+      }
+      this.taxiCustomers.delete(msg.npcId);
+      this.state.npcs.delete(msg.npcId);
+      player.passengerId = msg.npcId;
+      this.taxiRides.set(client.sessionId, {
+        passengerId: msg.npcId, kind: 'npc', npcId: msg.npcId,
+        destX: cust.destX, destY: cust.destY, poiName: cust.poiName,
+        distancePx: 0, startedAt: now,
+      });
+      send({
+        ok: true, action: 'pickup', npcId: msg.npcId,
+        destX: cust.destX, destY: cust.destY, poiName: cust.poiName,
+      });
+      console.log(`[city] taxi ${player.name} picked up NPC -> ${cust.poiName} (${cust.destX},${cust.destY})`);
+      return;
+    }
+
+    if (action === 'dropoff') {
+      if (!this.taxiRides.has(client.sessionId)) { send({ ok: false, error: 'NO_RIDE' }); return; }
+      const fare = this._completeTaxiRide(client.sessionId, 'DROPOFF');
+      if (!fare) send({ ok: false, error: 'NO_RIDE' });
+      return;
+    }
+
+    if (action === 'leave') {
+      // Passenger gets off: the ride ends with the fare for the distance
+      // travelled so far (same as a driver dropoff).
+      for (const [driverId, ride] of this.taxiRides) {
+        if (ride.passengerId === client.sessionId) {
+          this._completeTaxiRide(driverId, 'PASSENGER_LEFT');
+          send({ ok: true, action: 'leave' });
+          return;
+        }
+      }
+      send({ ok: false, error: 'NO_RIDE' });
+      return;
+    }
+
+    if (action === 'status') {
+      const ride = this.taxiRides.get(client.sessionId);
+      const customers = [];
+      for (const [npcId] of this.taxiCustomers) {
+        const npc = this.state.npcs.get(npcId);
+        if (npc) customers.push({ npcId, x: npc.x, y: npc.y });
+      }
+      send({
+        ok: true, action: 'status',
+        taxiMode: this.taxiMode.has(client.sessionId),
+        ride: ride ? {
+          kind: ride.kind, passengerId: ride.passengerId,
+          destX: ride.destX, destY: ride.destY, poiName: ride.poiName,
+          distancePx: Math.round(ride.distancePx),
+        } : null,
+        customers,
+        invitedBy: (this.taxiInvites.get(client.sessionId) || {}).driverId || null,
+      });
+      return;
+    }
+
+    send({ ok: false, error: 'BAD_ACTION', action: action || null });
+  }
+
+  // ---------------------------------------------------------------- M4 motel (§8.2)
+  _onMotel(client, msg) {
+    const player = this.state.players.get(client.sessionId);
+    const econ = this.economy.get(client.sessionId);
+    if (!player || !econ || !msg || typeof msg !== 'object') return;
+    const action = msg.action;
+    const now = Date.now();
+    const send = (m) => client.send('motel_result', Object.assign({ type: 'motel' }, m));
+    let room = this.motel.get(client.sessionId);
+
+    if (action === 'rent' || action === 'renew') {
+      if (dist(player.x, player.y, MOTEL_POS.x, MOTEL_POS.y) > ECON_RANGE) {
+        send({ ok: false, error: 'TOO_FAR' }); return;
+      }
+      if (action === 'renew' && !room) { send({ ok: false, error: 'NO_ROOM' }); return; }
+      if (action === 'rent' && room && M3.motelIsActive(room.expiresAt, now)) {
+        send({ ok: false, error: 'ALREADY_RENTED', expiresAt: room.expiresAt }); return;
+      }
+      // Renewal extends from the OLD expiresAt, max 7 days ahead (§8.2).
+      const newExpiry = action === 'renew'
+        ? M3.motelRenewExpiry(room.expiresAt, now)
+        : now + M3.MOTEL_RENT_HOURS * 3600 * 1000;
+      if (newExpiry - now > M3.MOTEL_RENEW_MAX_DAYS * 24 * 3600 * 1000) {
+        send({ ok: false, error: 'RENEW_LIMIT' }); return;
+      }
+      const paid = this._deductCashBank(player, M3.MOTEL_RENT);
+      if (!paid.ok) { send({ ok: false, error: 'INSUFFICIENT_FUNDS', need: M3.MOTEL_RENT }); return; }
+      if (!room) { room = { expiresAt: 0, chest: new Map() }; this.motel.set(client.sessionId, room); }
+      room.expiresAt = newExpiry;
+      player.roomExpiresAt = newExpiry;
+      this._econLog(econ, 'asset_rent', -M3.MOTEL_RENT, { asset_type: 'room', asset_code: 'motel_01', expires_at: newExpiry });
+      send({ ok: true, action, expiresAt: newExpiry, cash: player.cash, bank: player.bank });
+      console.log(`[city] ${player.name} ${action} motel room until ${new Date(newExpiry).toISOString()}`);
+      return;
+    }
+
+    if (action === 'chest_put' || action === 'chest_take') {
+      if (!room || M3.motelChestState(room.expiresAt, now) !== 'active') {
+        send({ ok: false, error: 'CHEST_LOCKED', state: room ? M3.motelChestState(room.expiresAt, now) : 'none' });
+        return;
+      }
+      const itemId = msg.itemId;
+      const qty = Math.max(1, Math.min(99, (msg.qty | 0) || 1));
+      const item = SHOP_ITEMS[itemId];
+      if (!item) { send({ ok: false, error: 'ITEM_NOT_FOUND' }); return; }
+      if (action === 'chest_put') {
+        const have = econ.inventory.get(itemId) || 0;
+        if (have < qty) { send({ ok: false, error: 'NO_ITEM' }); return; }
+        if (!room.chest.has(itemId) && room.chest.size >= M3.MOTEL_CHEST_SLOTS) {
+          send({ ok: false, error: 'CHEST_FULL' }); return;
+        }
+        econ.inventory.set(itemId, have - qty);
+        room.chest.set(itemId, (room.chest.get(itemId) || 0) + qty);
+      } else {
+        const stored = room.chest.get(itemId) || 0;
+        if (stored < qty) { send({ ok: false, error: 'NO_ITEM' }); return; }
+        room.chest.set(itemId, stored - qty);
+        if (room.chest.get(itemId) <= 0) room.chest.delete(itemId);
+        econ.inventory.set(itemId, (econ.inventory.get(itemId) || 0) + qty);
+      }
+      const chest = {};
+      for (const [k, v] of room.chest) chest[k] = v;
+      send({ ok: true, action, itemId, qty, chest });
+      return;
+    }
+
+    if (action === 'status') {
+      const chest = {};
+      if (room) for (const [k, v] of room.chest) chest[k] = v;
+      send({
+        ok: true, action: 'status',
+        expiresAt: room ? room.expiresAt : 0,
+        chestState: room ? M3.motelChestState(room.expiresAt, now) : 'none',
+        chest,
+        cash: player.cash, bank: player.bank,
+      });
+      return;
+    }
+
+    send({ ok: false, error: 'BAD_ACTION', action: action || null });
+  }
+
   // ---------------------------------------------------------------- jobs (M3: §3.4 job choice, §6 Shipper)
   _syncOrderState(player, order) {
     if (!player) return;
@@ -791,6 +1406,8 @@ class CityRoom extends Room {
       client.send('job_result', { type: 'job', ok: false, error: 'ACTIVE_ORDER' });
       return;
     }
+    // M4: leaving the taxi_driver job turns "Nhận khách" off.
+    if (job !== 'taxi_driver') this.taxiMode.delete(client.sessionId);
     player.job = job;
     client.send('job_result', { type: 'job', ok: true, job });
     console.log(`[city] ${player.name} job -> ${job}`);
@@ -835,11 +1452,18 @@ class CityRoom extends Room {
       }
       slot.lockedBy = client.sessionId;
       const distance = Math.round(dist(player.x, player.y, slot.targetX, slot.targetY));
-      const seconds = M3.deliverySeconds(distance, M3.WALK_SPEED); // M3: on foot (bike is M4)
+      // M4 (§6.3, §6.4): the deadline uses the speed of the vehicle the
+      // player is RIDING at accept time (walk 180 / bicycle 234 /
+      // motorbike 324) and is LOCKED — changing vehicle mid-order does not
+      // change it. The reward uses the LOCKED pay multiplier for that
+      // vehicle (walk x1.00 / bicycle x1.30 / motorbike x2.00).
+      const acceptSpeed = M3.vehicleSpeed(player.vehicleId, player.fuel, player.durability);
+      const seconds = M3.deliverySeconds(distance, acceptSpeed);
       const order = {
         id: slot.id + '-' + (++this.orderSeq),
         slotId: slot.id, targetX: slot.targetX, targetY: slot.targetY, poiName: slot.poiName,
-        distance, reward: M3.deliveryReward(distance, M3.isNightWorld(this.state.worldTime)),
+        distance, reward: M3.deliveryRewardFor(distance, M3.isNightWorld(this.state.worldTime), player.vehicleId),
+        vehicleId: player.vehicleId || '',
         deadlineAt: now + seconds * 1000, idempotencyKey: randomUUID(),
         status: 'accepted', jobType: 'delivery', userId: client.sessionId,
       };
@@ -850,7 +1474,7 @@ class CityRoom extends Room {
         order: {
           id: order.id, targetX: order.targetX, targetY: order.targetY, poiName: order.poiName,
           distance: order.distance, reward: order.reward, deadlineAt: order.deadlineAt,
-          secondsLeft: seconds,
+          secondsLeft: seconds, vehicleId: order.vehicleId,
         },
       });
       console.log(`[city] ${player.name} accepted ${order.id} -> (${order.targetX},${order.targetY}) ${distance}px ${seconds}s reward ${order.reward}đ`);
@@ -893,6 +1517,7 @@ class CityRoom extends Room {
       player.cash += order.reward;
       this._econLog(econ, 'job_reward', order.reward, {
         job: 'delivery', delivery_id: order.id, distance_px: order.distance,
+        vehicle_id: order.vehicleId || 'foot',
         idempotency_key: order.idempotencyKey,
       });
       client.send('job_result', {
@@ -1045,6 +1670,11 @@ class CityRoom extends Room {
         const econ = this.economy.get(id);
         if (econ) this._econLog(econ, 'faint_loss', -lost, { cash_after: p.cash });
         console.log(`[city] ${p.name} fainted (60 s countdown, lost ${lost}đ, cash now ${p.cash})`);
+        // M4: broadcast an explicit 'fainted' message to the whole room.
+        // This is the fix for the known M3 gap (online self-faint played no
+        // sound): the client's onFainted hook plays DTA_SFX.faint for self,
+        // and doctors get the faint_alert below as before.
+        this.broadcast('fainted', { playerId: id, name: p.name, x: p.x, y: p.y, at: now });
         // M3 (§6.2): fainting mid-order fails the order, no reward.
         this._failActiveOrder(id, 'fainted');
         // M3 (§3.4.3): alert doctors (job='doctor') with coordinates —
@@ -1078,6 +1708,20 @@ class CityRoom extends Room {
         this._releaseOrderSlot(held.order);
         this.heldOrders.delete(sid);
         console.log(`[city] held order ${held.order.id} EXPIRED (no reconnect in 30 s)`);
+      }
+    }
+
+    // M4 taxi (§10.2): NPC customers spawn at intersections while the room
+    // has < 4 real players and at least one driver has "Nhận khách" on;
+    // unpicked customers despawn after 5 min. NPC rides auto-complete
+    // when the driver reaches the destination (checked below).
+    this._taxiTick(now);
+    // M4 motel (§8.2): a chest whose room expired >= 24h ago is deleted
+    // for good (held chests are kept until then; renewing re-opens them).
+    for (const [sid, room] of this.motel) {
+      if (room.expiresAt && now >= room.expiresAt + M3.MOTEL_CHEST_HOLD_HOURS * 3600 * 1000 && room.chest.size > 0) {
+        room.chest.clear();
+        console.log(`[city] motel chest deleted for ${sid} (expired 24h+ ago)`);
       }
     }
 

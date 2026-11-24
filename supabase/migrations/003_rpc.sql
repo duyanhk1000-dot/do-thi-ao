@@ -18,7 +18,7 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- rpc_starter_grant: 50.000đ ONCE. A second call returns ALREADY_GRANTED
+-- rpc_starter_grant: 80.000đ ONCE (v2.2, supersedes v2.1: 50.000đ). A second call returns ALREADY_GRANTED
 -- (checked via the existing starter_grant log row, so even a fresh
 -- idempotency key cannot grant twice).
 create or replace function public.rpc_starter_grant(
@@ -45,10 +45,10 @@ begin
              where user_id = p_user_id and type = 'starter_grant') then
     return jsonb_build_object('ok', false, 'error', 'ALREADY_GRANTED', 'cash', v_cash);
   end if;
-  update public.profiles set cash = cash + 50000 where user_id = p_user_id;
-  perform public._log_tx(p_user_id, 'starter_grant', 50000, v_cash + 50000,
+  update public.profiles set cash = cash + 80000 where user_id = p_user_id;
+  perform public._log_tx(p_user_id, 'starter_grant', 80000, v_cash + 80000,
     p_idempotency_key, '{"once": true}'::jsonb);
-  return jsonb_build_object('ok', true, 'cash', v_cash + 50000, 'bank', 0);
+  return jsonb_build_object('ok', true, 'cash', v_cash + 80000, 'bank', 0);
 end;
 $$ language plpgsql security definer;
 
