@@ -400,3 +400,48 @@ applied to the v1 prompts above:
 | prop-bin | PASS via crop (v2) | Green lid cropped off the beige platform |
 
 **Totals: 34 PASS (incl. 5 via roof crop, 8 via centre crop), 1 CONDITIONAL (fence-gate, reference only), 0 outstanding FAILs.** FLUX cannot render a building as pure flat-roof-only no matter how explicit the prompt (proven in v1 + v2); the roof crops are the working fix, not another prompt round.
+
+## Polyfork render — warehouse + cargo boxes (2026-11-25, user redirect)
+
+User asked to fix ONE building (central warehouse + dock boxes) and then
+redirected: use Polyfork assets, do NOT generate with FLUX. Full record in
+`docs/polyfork-credits.md`.
+
+- Warehouse: **Brick Depot Warehouse** (Polyfork, free, CC BY 4.0),
+  https://polyfork.dev/asset/brick-depot-warehouse-3dd642, 1456 tris,
+  12 x 7.23 x 8 m. GLB downloaded (no account) to
+  `assets/v3/polyfork/brick-depot-warehouse-3dd642.glb`. Rejected:
+  Dock Warehouse (wooden pirate shed, wrong vibe).
+- Boxes: **Cargo Crate** (Polyfork, free, CC BY 4.0),
+  https://polyfork.dev/asset/cargo-crate-9afc44, 536 tris, 0.8 m cube.
+  GLB at `assets/v3/polyfork/cargo-crate-9afc44.glb`. Rejected:
+  Freight Crate and Sack Stack (sacks attached, less clean at 40px).
+- Rendering: no Blender/Chromium/trimesh/pyrender/EGL on this machine, so
+  a pure-Python software rasterizer was written
+  (`assets/v3/polyfork/render_polyfork.py`): GLB parse (POSITION +
+  COLOR_0 + NORMAL, indexed tris), orthographic 70-degree high angle,
+  flat shading from face normal + fixed sun, z-buffer, solid magenta
+  background. Two bugs found by viewing and fixed: (1) backface cull was
+  inverted (everything rendered near-black — culled the front faces);
+  (2) see-through windows showed magenta through the empty interior
+  (fixed with an enclosed-region hole-fill to near-black, 1069 px).
+  Azimuth 0 shows the sliding door at the bottom edge (dock side);
+  azimuth 180 hides it — azimuth 0 used.
+- Key-out: same `make_v3_sprites.py` pipeline (global magenta key +
+  largest component + tight crop to opaque bbox):
+  `building-warehouse-tight.png` 871x697 aspect 1.25 (collider 630x480
+  aspect 1.31 — fitRect fills ~95%), magenta-left 0.00%, corner alpha 0;
+  `prop-box-full.png` 579x737 aspect 0.79 (drawn 40px wide -> 51px tall),
+  magenta-left 0.00%, corner alpha 0. Both VIEWED: cream roof panels +
+  black beams, red-brick facade with arched windows + wooden sliding door
+  at the bottom; crate reads as a brown wooden slatted crate at 40px.
+- Code change: NONE for the art swap (same filenames, same ASSET_FILES
+  refs, collider rect + WAREHOUSE_POS unchanged). One test update:
+  `test/map-render-check.js` recorded warehouse dims 690x620 -> 871x697.
+- FLUX v3 fallback (generated before the redirect, raws kept):
+  `raw/building-warehouse-v3.png` and `raw/prop-box-v3.png`, both PASS
+  on viewing; their keyed-out files were overwritten by the Polyfork
+  renders. Box v2 note: FLUX chose yellow twice despite "MUST be brown
+  cardboard, NEVER yellow"; v3 with HEX #A67C52 + no negation finally
+  gave tan-brown kraft cardboard.
+- GLB files are NOT pushed to GitHub (game ships rendered PNGs only).

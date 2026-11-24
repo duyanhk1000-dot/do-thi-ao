@@ -128,6 +128,40 @@ function layoutAt(W, H) {
     !overlap(byName.chatBtn, byName.sprint));
 });
 
+// ---- clock day number (fix 2026-11-25: clock showed "08:56 • Ngày" with
+// no day number — worldTime wrapped every 1440 min but nothing counted days)
+check('clock text shows the day number (Ngày N / Đêm N)',
+  /clockT\.text = clockStr \+ \(isNight \? '  •  Đêm ' : '  •  Ngày '\) \+ worldDay;/.test(mainSrc));
+check('worldDay declared, starts at 1', /var worldDay = 1;/.test(mainSrc));
+(function () {
+  // simulate the exact wrap logic from main.js (offline + online)
+  var DAY_MINUTES = 1440, worldTime = 480, worldDay = 1;
+  function tickOffline(dt) {
+    var nextTime = worldTime + dt;
+    if (nextTime >= DAY_MINUTES) worldDay++;
+    worldTime = nextTime % DAY_MINUTES;
+  }
+  function onWorldTime(minutes) {
+    if (worldTime > 1200 && minutes < 240) worldDay++;
+    worldTime = minutes;
+  }
+  function clockStr() {
+    var hh = Math.floor(worldTime / 60) % 24, mm = Math.floor(worldTime % 60);
+    var s = (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;
+    return s + ((hh >= 18 || hh < 6) ? '  •  Đêm ' : '  •  Ngày ') + worldDay;
+  }
+  check('clock at start is "08:00 • Ngày 1"', clockStr() === '08:00  •  Ngày 1', clockStr());
+  worldTime = 1439; tickOffline(1.5); // cross midnight offline
+  check('offline midnight wrap -> day 2, "00:00 • Đêm 2"', worldDay === 2 && clockStr() === '00:00  •  Đêm 2', clockStr());
+  tickOffline(360); // 06:00 day 2
+  check('06:00 day 2 -> "06:00 • Ngày 2"', clockStr() === '06:00  •  Ngày 2', clockStr());
+  worldTime = 1300; worldDay = 5; onWorldTime(30); // server wraps past midnight
+  check('online server wrap -> day 6', worldDay === 6 && worldTime === 30, 'day=' + worldDay);
+  worldTime = 1300; worldDay = 5; onWorldTime(480); // server restart to 08:00, NOT a new day
+  check('server restart to 08:00 does not add a day', worldDay === 5, 'day=' + worldDay);
+  check('day number is a real number >= 1', typeof worldDay === 'number' && worldDay >= 1);
+})();
+
 // ---- summary ----------------------------------------------------------------
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);

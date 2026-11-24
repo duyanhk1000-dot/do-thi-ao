@@ -143,6 +143,9 @@
     order: null
   };
   var worldTime = 480; // 08:00, minutes 0..1440
+  var worldDay = 1; // game-day counter, starts at 1 (clock fix 2026-11-25:
+  // the clock showed "08:56 • Ngày" with no day number — worldTime wraps
+  // every 1440 min but nothing counted the days)
 
   // ---------- M2: zoom / camera ----------
   // M0 used clamp(W/1100, 0.35, 1) — at 390px wide that is 0.35x and the
@@ -1499,7 +1502,7 @@
     var hh = Math.floor(worldTime / 60) % 24, mm = Math.floor(worldTime % 60);
     var clockStr = (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;
     var isNight = hh >= 18 || hh < 6;
-    hudRefs.clockT.text = clockStr + (isNight ? '  •  Đêm' : '  •  Ngày');
+    hudRefs.clockT.text = clockStr + (isNight ? '  •  Đêm ' : '  •  Ngày ') + worldDay;
     // VEHICLES FIX (2026-11-25): riding indicator — speed + how to
     // dismount. Hidden on foot (empty text). Kept SHORT on purpose: the
     // full text with fuel % is ~310px and would overlap the FPS counter
@@ -2884,7 +2887,14 @@
         }
         if (typeof Economy !== 'undefined' && Economy.renderMotel) Economy.renderMotel();
       },
-      onWorldTime: function (minutes) { if (netMode === 'online') worldTime = minutes; },
+      onWorldTime: function (minutes) {
+        if (netMode !== 'online') return;
+        // midnight wrap on the server also starts a new game day; the
+        // 1200/240 guard keeps a server restart (back to 08:00 = 480)
+        // from counting as a new day.
+        if (worldTime > 1200 && minutes < 240) worldDay++;
+        worldTime = minutes;
+      },
       // M2: server economy results (starter_grant / shop_buy / atm_transfer /
       // use_item). Server is authoritative for cash/bank when online.
       onEconResult: function (msg) {
@@ -3166,8 +3176,13 @@
         if (hudRefs.fpsT) hudRefs.fpsT.text = fpsValue + ' FPS';
       }
       // clock: 1 game minute per real second (offline only — online the
-      // server worldTime is authoritative, via onWorldTime)
-      if (netMode !== 'online') worldTime = (worldTime + dt) % DAY_MINUTES;
+      // server worldTime is authoritative, via onWorldTime). A wrap past
+      // midnight starts a new game day (worldDay, shown in the clock).
+      if (netMode !== 'online') {
+        var nextTime = worldTime + dt;
+        if (nextTime >= DAY_MINUTES) worldDay++;
+        worldTime = nextTime % DAY_MINUTES;
+      }
       var hour = Math.floor(worldTime / 60) % 24;
       var dark = darknessFor(hour);
       nightOverlay.alpha = dark;

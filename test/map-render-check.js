@@ -184,7 +184,7 @@ check('plaza crop fountain centred on the real fountain (2400,2400)', !!plazaPng
 
 // ---- 6. tight crops exist with the recorded dims ---------------------------
 var tight = {
-  'building-hospital-tight.png': [580, 570], 'building-warehouse-tight.png': [690, 620],
+  'building-hospital-tight.png': [580, 570], 'building-warehouse-tight.png': [871, 697], // Polyfork render 2026-11-25 (was FLUX 690x620)
   'building-motel-tight.png': [900, 680], 'building-market-tight.png': [480, 440],
   'building-police-tight.png': [680, 550], 'building-school-tight.png': [680, 330],
   'building-cafe-tight.png': [670, 710], 'building-pavilion-tight.png': [600, 690],
