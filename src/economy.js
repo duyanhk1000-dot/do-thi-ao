@@ -25,8 +25,8 @@
   };
   var STARTER_GRANT = 50000;
   var ATM_MIN = 1000, ATM_MAX = 200000, ATM_DAY_MAX = 500000;
-  var SHOP_POS = { x: 1930, y: 1060 }; // Cửa Hàng Tiện Lợi POI
-  var BANK_POS = { x: 1100, y: 1060 }; // Ngân Hàng & ATM POI
+  var SHOP_POS = { x: 2895, y: 1590 }; // Cửa Hàng Tiện Lợi POI (Map v2)
+  var BANK_POS = { x: 1650, y: 1590 }; // Ngân Hàng & ATM POI (Map v2)
   var SHOP_RANGE = 300; // must be within 300px to open shop/ATM (SRS gameplay)
   var LS_KEY = 'dta_m2_wallet_v1';
 
@@ -100,10 +100,43 @@
     return { ok: true, cash: wallet.cash };
   }
 
+  // M3 (§3.2.3/§3.2.5, offline mirror of the server rules in shared/m3.js):
+  // faintLoss halves carried Cash at faint time (sink, Bank untouched);
+  // hospitalFee charges 10.000 + 50% of the remaining Cash, Cash first then
+  // Bank, never negative; grant adds a server-calculated reward (Shipper /
+  // doctor) with its idempotency key in the log.
+  function faintLoss() {
+    var lost = Math.floor(wallet.cash / 2);
+    wallet.cash -= lost;
+    logTx('faint_loss', -lost, { cash_after: wallet.cash });
+    saveWallet(); applyToState();
+    return { ok: true, lost: lost, cash: wallet.cash };
+  }
+  function hospitalFee() {
+    var fee = 10000 + Math.floor(wallet.cash / 2);
+    var fromCash = Math.min(wallet.cash, fee);
+    wallet.cash -= fromCash;
+    var fromBank = Math.min(wallet.bank, fee - fromCash);
+    wallet.bank -= fromBank;
+    var paid = fromCash + fromBank;
+    logTx('hospital_fee', -paid, { fee: fee, cash_after: wallet.cash });
+    saveWallet(); applyToState();
+    return { ok: true, fee: fee, paid: paid, cash: wallet.cash, bank: wallet.bank };
+  }
+  function grant(amount, type, meta) {
+    wallet.cash += amount;
+    logTx(type || 'job_reward', amount, meta || {});
+    saveWallet(); applyToState();
+    return { ok: true, cash: wallet.cash, bank: wallet.bank };
+  }
+  function isFaintedState() { return !!(state && state.isFainted); }
+
   function buy(itemId, qty) {
     qty = Math.max(1, Math.min(99, qty | 0 || 1));
     var item = ITEMS[itemId];
     if (!item) return { ok: false, error: 'ITEM_NOT_FOUND' };
+    // M3 (§3.2.3): a fainted player cannot move, work or buy/sell.
+    if (isFaintedState()) return { ok: false, error: 'FAINTED' };
     var requestId = uuid();
     if (wallet.processed.indexOf(requestId) !== -1) return { ok: false, error: 'ALREADY_PROCESSED' };
     var total = priceOf(item) * qty;
@@ -148,6 +181,7 @@
   function useItem(itemId) {
     var item = ITEMS[itemId];
     if (!item) return { ok: false, error: 'ITEM_NOT_FOUND' };
+    if (isFaintedState()) return { ok: false, error: 'FAINTED' };
     if ((wallet.inventory[itemId] || 0) < 1) return { ok: false, error: 'NO_ITEM' };
     if (!state) return { ok: false, error: 'NO_STATE' };
     wallet.inventory[itemId] -= 1;
@@ -160,6 +194,7 @@
 
   function atm(action, amount) {
     amount = Math.floor(amount);
+    if (isFaintedState()) return { ok: false, error: 'FAINTED' };
     if (!isFinite(amount) || amount < ATM_MIN || amount > ATM_MAX) {
       return { ok: false, error: 'AMOUNT_RANGE', min: ATM_MIN, max: ATM_MAX };
     }
@@ -208,6 +243,7 @@
       case 'DAILY_LIMIT': return 'Đã dùng ' + fmt(res.used || 0) + ' hôm nay, tối đa ' + fmt(ATM_DAY_MAX) + '/ngày.';
       case 'NO_ITEM': return 'Bạn không có vật phẩm này.';
       case 'ITEM_NOT_FOUND': return 'Không có mặt hàng này.';
+      case 'FAINTED': return 'Bạn đang ngất, không mua bán / dùng đồ được. Về Bệnh viện hoặc chờ bác sĩ cứu!';
       default: return 'Lỗi: ' + (res.error || 'không rõ');
     }
   }
@@ -282,7 +318,7 @@
   function openShopPanel() {
     // BUG FIX (M2 browser test) — ROOT CAUSE: this used to return early with
     // only an alert() when the player was not within 300px of the shop.
-    // Spawn (1600,1750) is ~765px from the shop (1930,1060), so every SHOP
+    // Spawn (2400,2625) is ~1147px from the shop (2895,1590), so every SHOP
     // click from spawn did nothing visible (the alert is suppressed / missed
     // in a live browser test) while CHAT, which has no gate, worked fine.
     // The handler itself was wired correctly (wirePanels) and the button was
@@ -298,7 +334,7 @@
   }
   function openAtmPanel() {
     // Same fix as openShopPanel: toggle reliably from anywhere; Gửi/Rút are
-    // disabled in renderAtm() until the player is near the bank (1100,1060).
+    // disabled in renderAtm() until the player is near the bank (1650,1590).
     console.log('[economy] openAtmPanel, nearBank=', nearBank());
     if (atmEl && atmEl.classList.contains('open')) { closePanels(); return; }
     renderAtm();
@@ -363,6 +399,7 @@
     },
     buy: buy, buyAsync: buyAsync, useItem: useItem, atm: atm,
     starterGrant: starterGrant, nearShop: nearShop, nearBank: nearBank,
+    faintLoss: faintLoss, hospitalFee: hospitalFee, grant: grant,
     getWallet: function () { return wallet; },
     getMode: function () { return mode; },
     priceOf: priceOf, isDay: isDay,

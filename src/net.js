@@ -11,6 +11,9 @@
      onInteractError(err){error, action?}
      onRevived(msg)      {byId, byName, targetId}
      onWorldTime(minutes)
+     onJobResult(msg)    M3 {type:'job'|'shipper'|'hospital', ok, error, ...}
+     onNpcTalk(msg)      M3 {npcId, name, isGuide, x, y, text, quest?, personaId?}
+     onFaintAlert(msg)   M3 {playerId, name, x, y, at} (doctors only)
      onSnapshot(state)   {players:[...], npcs:[...], worldTime} (full sweep)
      onDisconnected()    (room left unexpectedly — reconnecting)
      onReconnected()     (rejoin succeeded)
@@ -30,7 +33,11 @@
       stamina: p.stamina, cash: p.cash, bank: p.bank,
       isFainted: !!p.isFainted, vehicleId: p.vehicleId || '',
       chatBubble: p.chatBubble || '', chatBubbleUntil: p.chatBubbleUntil || 0,
-      avatar: p.avatar || 'hero'
+      avatar: p.avatar || 'hero',
+      // M3 Shipper (§6): active order mirrored from the server state.
+      orderStatus: p.orderStatus || 'none', orderId: p.orderId || '',
+      orderX: p.orderX || 0, orderY: p.orderY || 0,
+      orderDeadline: p.orderDeadline || 0, orderReward: p.orderReward || 0
     };
   }
 
@@ -151,6 +158,23 @@
       catch (e) { return false; }
     },
 
+    // M3: pick a job ('unemployed' | 'shipper' | 'doctor' | 'taxi_driver').
+    sendJob: function (job) {
+      if (!this.connected || !this.room) return false;
+      try { this.room.send('job', { job: job }); return true; }
+      catch (e) { return false; }
+    },
+
+    // M3 Shipper (§6): action 'accept' | 'complete' | 'cancel' | 'status'.
+    // extra carries {orderId} for 'complete'.
+    sendShipper: function (action, extra) {
+      if (!this.connected || !this.room) return false;
+      var msg = { action: action };
+      if (extra && extra.orderId) msg.orderId = extra.orderId;
+      try { this.room.send('shipper', msg); return true; }
+      catch (e) { return false; }
+    },
+
     // M2 economy: sends an economy message (starter_grant / shop_buy /
     // atm_transfer / use_item) with a fresh idempotency request_id.
     sendEconomy: function (type, msg) {
@@ -230,6 +254,10 @@
       room.onMessage('interact_error', function (msg) { self._call('onInteractError', msg); });
       room.onMessage('revived', function (msg) { self._call('onRevived', msg); });
       room.onMessage('econ_result', function (msg) { self._call('onEconResult', msg); });
+      // M3: job/shipper results, NPC talk replies, doctor faint alerts.
+      room.onMessage('job_result', function (msg) { self._call('onJobResult', msg); });
+      room.onMessage('npc_talk', function (msg) { self._call('onNpcTalk', msg); });
+      room.onMessage('faint_alert', function (msg) { self._call('onFaintAlert', msg); });
 
       room.onLeave(function (code) {
         self.connected = false;

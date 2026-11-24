@@ -1,4 +1,4 @@
-# Đô Thị Ảo — M0 Prototype
+# Cuộc Sống Ảo — M0 Prototype
 
 Prototype local 1 người chơi, **chưa có server** (không Colyseus, không Supabase,
 không kinh tế / nghề / mua bán). Mục đích M0: kiểm tra di chuyển, camera,
@@ -62,6 +62,35 @@ Radial Menu có 4 nút: **Nói chuyện** (bong bóng thoại 3 giây),
 6. **Polish**: delta-time, frustum culling (chỉ vẽ vật trong tầm camera),
    xử lý resize, màn hình bắt đầu vẽ trên Canvas (tiêu đề + nút BẮT ĐẦU),
    hiển thị FPS góc dưới-phải, toàn bộ chữ tiếng Việt.
+
+## M3 — Sinh tồn + NPC + Shipper (SRS v2.1 §3.2, §6, §10.2)
+
+- **Sinh tồn**: ngất mất 50% Cash ngay lúc ngất; về Bệnh viện phí
+  10.000đ + 50% Cash còn lại (trừ Cash trước rồi Bank, không âm); nút
+  "Về Bệnh viện" chỉ mở sau 10s ngất; ngất 60s không ai cứu thì tự về
+  Bệnh viện (50 HP). Ngất không di chuyển/mua bán được, vẫn chat được.
+- **Bác sĩ**: cấp cứu trong 120px hồi 30 HP; chỉ nghề Bác sĩ được
+  25.000đ/lần, tối đa 3 lần cùng 1 người/giờ, cooldown 60s giữa 2 lần
+  thưởng; cùng 1 cặp cứu nhau > 10 lần/ngày thì gắn cờ
+  `suspected_collusion` (không tự ban). Bác sĩ nhận cảnh báo tọa độ
+  (`faint_alert`) khi có người ngất.
+- **Shipper**: nút NGHỀ chọn Shipper / Bác sĩ / Tài xế (Tài xế chỉ ghi
+  nhận nghề, cơ chế chở khách là M4). Nhận đơn ở Kho Hàng (300px),
+  tối đa 1 đơn/lúc, deadline = khoảng cách/180 + 30s, thưởng server
+  tự tính 15.000–22.000đ ngày (×1,3 đêm), giao trong 80px, hủy đơn
+  chờ 10s, hết hạn/ngất giữa đường thì đơn FAILED/EXPIRED, gửi hoàn
+  thành 2 lần chỉ thưởng 1 lần (`ALREADY_PROCESSED`). HUD có mũi tên
+  vàng chỉ điểm giao + đếm ngược + điểm giao trên minimap.
+- **NPC**: tới gần NPC đi dạo < 120px → Radial Menu → Nói chuyện →
+  NPC trả lời 1 câu theo persona (Anh Tùng, Chị Lan, Chú Ba, Anh Công,
+  Tý, Bé Mai); NPC Hướng Dẫn hiện nhiệm vụ tân thủ 5 bước. NPC đi
+  dạo 90px/s, dừng 3–8s.
+- **Offline**: tất cả trên đều chạy ở chế độ chơi đơn (không server)
+  với cùng số liệu — dùng chung `shared/m3.js` với server.
+- **Test**: `cd server && npm test` — 35/35 PASS (xem
+  `server/test/test.js`). Supabase vẫn chưa nối: tiền/job/log vẫn
+  in-memory như M2; Taxi chở khách, xe máy, nhà trọ là M4; server
+  chưa deploy.
 
 ## Chưa có trong M0 (để M1/M2/M3)
 

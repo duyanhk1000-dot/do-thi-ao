@@ -80,3 +80,17 @@ Style lock v2 cho nhân vật: "Bright colorful 3D cartoon mobile city game char
 **Kho v3:** `building-warehouse.png` cũ có thêm 2 nhà đỏ phụ + cây trên bệ tròn → v3 (prompt thêm "no other buildings, no trees") ra 1 kho duy nhất, sạch, có bệ + vài cây nhỏ quanh (chấp nhận, đọc là khu kho). Đã ghi đè file cũ (convert sang PNG thật).
 **Map / bank / shop / hospital / showroom / motel:** giữ nguyên v1 (đã đẹp, nền trắng sạch, isometric).
 **Quy tắc dùng trong game từ M2:** `*-full.png` (trong suốt) = nhân vật ĐI TRONG THẾ GIỚI (full-body + bóng đổ ellipse dưới chân). `*-crop.png` (cũ) CHỈ dùng cho avatar HUD góc trái + ảnh đại diện chat — không bao giờ làm nhân vật di chuyển.
+
+---
+
+## v3 — 2026-11-25: TRUE 2D top-down (user: nhà chéo 2.5D rất dị, làm lại hết)
+
+**Vấn đề:** game 2D nhìn từ trên xuống nhưng nhà v1/v2 vẽ "slight isometric top-down view" nên nhà chéo 2.5D, lệch với bản đồ. M3 audit xác nhận đây là nguyên nhân gốc.
+**Style lock v3:** "Detailed 2D top-down mobile city game, viewed from directly above, flat roofs seen from above, rich shading, soft shadows, crisp clean shapes, vibrant colors, Pixar-quality detail, no isometric, no 3D perspective, no side view, no text, no words, no watermark" — dùng ở đầu mọi prompt v3. Nhân vật: góc cao nhìn thẳng xuống (overhead), nền magenta đặc để tách nền, KHÔNG còn chân dung đứng mặt trước.
+**Kết quả:** 36 ảnh mới trong `assets/v3/` (raw + bản final + `*-full.png` trong suốt + `*-roof.png` mái phẳng). Nhân vật 7 (hero + 6 NPC, nhận diện bằng màu áo), nhà 14 (6 cũ + đồn công an, chợ, trường, chòi, 3 nhà dân, cafe), bản đồ 4800 mới, props 14 (cây, hàng rào, đèn, ghế, chó, mèo, xe máy, ô tô, thùng, thùng rác).
+**Bài học FLUX v3 (đã test thật):**
+- Nhà: FLUX KHÔNG vẽ được mái phẳng thuần dù prompt "strictly top-down, roof only" để đầu (v1+v2 đều vẫn thêm mặt tiền). Cách sửa: crop chỉ lấy phần mái → `*-roof.png` (bank/shop/showroom/house-b/house-c). Nhà ra phẳng thật: motel, police, market, pavilion, cafe, hospital, warehouse.
+- Người: FLUX không vẽ được "chỉ thấy đỉnh đầu" trên nền sạch — test2 (phố) thì được góc nhưng nền thành phố, test3 (studio magenta) giữ được nền nhưng mặt ngước lên. v3 dùng test3 (high-angle overhead), ở cỡ game 42px đọc bằng màu áo là đủ.
+- Ảnh đen 6.428 byte (md5 d2b3434a…): helper ghi placeholder khi model lỗi — house-b fail 6 lần, map fail 5 lần. Nguyên nhân: cụm "water tank" (house-b) và prompt map quá dài. Sửa: bỏ "water tank", đơn giản hóa prompt map theo wording v1 M1 đã chứng minh → chạy ngay lần đầu.
+- Props: FLUX vẽ thêm cả khu nhà quanh vật nhỏ trên nền magenta — crop chặt quanh vật ở giữa rồi tách nền (màu nền = MODE của pixel viền, KHÔNG dùng median 4 góc vì crop chặt hơn vật sẽ lấy nhầm màu vật làm nền — lỗi prop-box v1 ăn mất cái hộp).
+- Skill audit (pro-prompting, user sửa 2026-11-25, BỎ quy tắc đếm từ 80-120): prompt v1/v2 PASS checklist trừ 1 cụm "Pixar-quality detail" (từ chất lượng trá hình) → lock v3 sửa thành "Pixar animation style", test trên hero PASS không thay đổi chất lượng. Chi tiết đầy đủ + prompt verbatim từng file: xem `assets/v3/PROMPTS_V3.md`. Thiết kế bản đồ 4800 (POI, collider, hàng rào + lối tắt): xem `assets/v3/MAP_V3_DESIGN.md`.

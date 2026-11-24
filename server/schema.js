@@ -21,6 +21,15 @@ defineTypes(PlayerState, {
   bank: 'number',
   isFainted: 'boolean',
   vehicleId: 'string', // '' when not in a vehicle
+  // M3 Shipper (§6): active order mirrored in Colyseus state so the client
+  // can draw the delivery arrow + countdown without a separate message.
+  // 'none' when no order is active; deadline is a ms epoch.
+  orderStatus: 'string', // 'none' | 'accepted'
+  orderId: 'string',
+  orderX: 'number',
+  orderY: 'number',
+  orderDeadline: 'number',
+  orderReward: 'number',
   chatBubble: 'string',
   chatBubbleUntil: 'number', // ms epoch; bubble shows until then
   avatar: 'string', // 'shipper' | 'bread' | 'taxi' | 'police' | 'thug' | 'student' | 'hero' | ...
