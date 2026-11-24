@@ -62,14 +62,16 @@ def key_out_global(img):
     # cast-shadow pass: FLUX draws the subject's shadow as DARK magenta
     # (e.g. hero (181,7,105), dog (147,5,65)) — dist ~103-112 from the bg
     # magenta, just above TOL, so the global key misses it. Shadow pixels
-    # are (R 95-230, G <= 40, B 50-150) — measured: hero (181,7,105), dog
-    # blob (107-118,4-5,47-53), car/taxi similar. No sprite colour matches
+    # are (R 95-230, G <= 40, B 40-150) — measured: hero (181,7,105), dog
+    # blob (107-118,4-5,47-53) and dog shadow (R 100-120, G 0-20, B 40-60).
+    # B was 50-150 until 2026-11-25; widened to 40 after the dog/cat still
+    # showed ~3000 shadow pixels below B=50. No sprite colour matches
     # that: Chị Lan's red apron is (183,11,1) — B ~ 0; pink backpack/flowers
     # have G > 100; orange/blue/green are far away. Safe to key by hue.
     for y in range(h):
         for x in range(w):
             r, g, b = px[x, y]
-            if 95 <= r <= 230 and g <= 40 and 50 <= b <= 150:
+            if 95 <= r <= 230 and g <= 40 and 40 <= b <= 150:
                 alpha[y * w + x] = 0
     # feather: 1px rim next to transparency, near-magenta -> half alpha
     for y in range(h):
@@ -230,6 +232,10 @@ PROPS = {
     "prop-fence-corner": (250, 370, 840, 690),
     "prop-fence-segment": (240, 395, 850, 615),
     "prop-motorbike": (380, 290, 660, 810),
+    # 2026-11-25 (vehicles fix): bicycle was missing entirely — FLUX v1
+    # drew a side view, v2 (high angle, diagonal, front wheel bottom-right)
+    # matches the motorbike prop's high-angle look. Crop from viewing v2.
+    "prop-bicycle": (180, 220, 850, 740),
 }
 for n, box in PROPS.items():
     src = Image.open(f"{RAW}/{n}.png").crop(box)

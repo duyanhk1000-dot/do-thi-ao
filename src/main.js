@@ -55,12 +55,12 @@
     { id: 'house9',    name: 'Nhà Dân',                x: 2670, y: 3840, w: 420, h: 390, color: 0xa9cce3, roof: 0x2e86c1 },
     { id: 'market',    name: 'Chợ',                    x: 3840, y: 3840, w: 630, h: 450, color: 0xf9e79f, roof: 0xb7950b },
     { id: 'police',    name: 'Đồn Công An',            x: 3720, y: 600,  w: 480, h: 360, color: 0x2c3e50, roof: 0x1a252f },
-    { id: 'school',    name: 'Trường Học',             x: 900,  y: 4200, w: 600, h: 420, color: 0xf5b7b1, roof: 0xec7063 },
-    { id: 'cafe',      name: 'Quán Cà Phê',            x: 2520, y: 4200, w: 360, h: 300, color: 0xa67c52, roof: 0x6e4b2a },
-    { id: 'pavilion',  name: 'Nhà Vọng Cảnh',          x: 3600, y: 600,  w: 300, h: 300, color: 0x7dcea0, roof: 0x2e86c1 },
-    { id: 'house10',   name: 'Nhà Dân',                x: 4200, y: 1425, w: 390, h: 300, color: 0xf1c40f, roof: 0xd4ac0d },
-    { id: 'house11',   name: 'Nhà Dân',                x: 4200, y: 2670, w: 390, h: 300, color: 0x82e0aa, roof: 0x229954 },
-    { id: 'house12',   name: 'Chung Cư',               x: 1500, y: 4200, w: 480, h: 360, color: 0xaed6f1, roof: 0x5dade2 }
+    { id: 'school',    name: 'Trường Học',             x: 180,  y: 4240, w: 600, h: 420, color: 0xf5b7b1, roof: 0xec7063 },
+    { id: 'cafe',      name: 'Quán Cà Phê',            x: 2520, y: 4230, w: 360, h: 300, color: 0xa67c52, roof: 0x6e4b2a },
+    { id: 'pavilion',  name: 'Nhà Vọng Cảnh',          x: 4200, y: 600,  w: 300, h: 300, color: 0x7dcea0, roof: 0x2e86c1 },
+    { id: 'house10',   name: 'Nhà Dân',                x: 3840, y: 4320, w: 390, h: 300, color: 0xf1c40f, roof: 0xd4ac0d },
+    { id: 'house11',   name: 'Nhà Dân',                x: 4290, y: 4320, w: 390, h: 300, color: 0x82e0aa, roof: 0x229954 },
+    { id: 'house12',   name: 'Chung Cư',               x: 1500, y: 4230, w: 480, h: 360, color: 0xaed6f1, roof: 0x5dade2 }
   ];
   // NOTE: BUILDINGS above is the shared/colliders.js copy when available
   // (verified identical — 22 rects). Collision rects must NEVER change here;
@@ -76,10 +76,10 @@
     { id: 'motel',     name: 'Khu Nhà Trọ',            x: 2910, y: 2865, color: 0x1abc9c },
     { id: 'warehouse', name: 'Kho Hàng Trung Tâm',     x: 4155, y: 2910, color: 0x95a5a6 },
     { id: 'police',    name: 'Đồn Công An',            x: 3960, y: 780,  color: 0x2c3e50 },
-    { id: 'school',    name: 'Trường Học',             x: 1200, y: 4410, color: 0xec7063 },
-    { id: 'cafe',      name: 'Quán Cà Phê',            x: 2700, y: 4350, color: 0xa67c52 },
+    { id: 'school',    name: 'Trường Học',             x: 480,  y: 4450, color: 0xec7063 },
+    { id: 'cafe',      name: 'Quán Cà Phê',            x: 2700, y: 4380, color: 0xa67c52 },
     { id: 'market',    name: 'Chợ',                    x: 4155, y: 4065, color: 0xf1c40f },
-    { id: 'pavilion',  name: 'Nhà Vọng Cảnh',          x: 3750, y: 750,  color: 0x7dcea0 }
+    { id: 'pavilion',  name: 'Nhà Vọng Cảnh',          x: 4350, y: 750,  color: 0x7dcea0 }
   ];
 
   function hitBuilding(x, y, r) {
@@ -164,17 +164,25 @@
     // Map v2 texture: ONLY the plaza ground + minimap + start backdrop.
     // NEVER stretched over the whole 4800 map (1024px would blur badly) —
     // roads / grass are drawn from the layout data in buildWorld().
+    // plaza = full district image (start backdrop only). plazaGround =
+    // centre crop of it (fountain only) — the full image painted a FAKE
+    // road at world y~2620 that connected to nothing (render bug 2026-11-25).
     plaza: 'assets/v3/map-city-v3.png',
+    plazaGround: 'assets/v3/plaza-ground.png',
     // Map v2 buildings: flat-roof crops for the 3/4-front ones (FLUX cannot
     // draw a pure flat roof — bank/shop/showroom/house-b/house-c are crops),
-    // full images for the already-flat ones.
-    bank: 'assets/v3/building-bank-roof.png', hospital: 'assets/v3/building-hospital.png',
-    warehouse: 'assets/v3/building-warehouse.png', shop: 'assets/v3/building-shop-roof.png',
-    showroom: 'assets/v3/building-showroom-roof.png', motel: 'assets/v3/building-motel.png',
-    police: 'assets/v3/building-police.png', market: 'assets/v3/building-market.png',
-    school: 'assets/v3/building-school.png', cafe: 'assets/v3/building-cafe.png',
-    pavilion: 'assets/v3/building-pavilion.png',
-    houseA: 'assets/v3/house-a.png', houseB: 'assets/v3/house-b-roof.png', houseC: 'assets/v3/house-c-roof.png',
+    // TIGHT crops (2026-11-25) for the full-scene ones: FLUX drew each
+    // building surrounded by neighbour buildings + streets + brown asphalt,
+    // and stretching the whole 1024 scene into the collider rect painted
+    // fake streets inside every block (the "brown streak" live bug).
+    // *-tight.png = building + lot only; drawn contain-fit, never stretched.
+    bank: 'assets/v3/building-bank-roof.png', hospital: 'assets/v3/building-hospital-tight.png',
+    warehouse: 'assets/v3/building-warehouse-tight.png', shop: 'assets/v3/building-shop-roof.png',
+    showroom: 'assets/v3/building-showroom-roof.png', motel: 'assets/v3/building-motel-tight.png',
+    police: 'assets/v3/building-police-tight.png', market: 'assets/v3/building-market-tight.png',
+    school: 'assets/v3/building-school-tight.png', cafe: 'assets/v3/building-cafe-tight.png',
+    pavilion: 'assets/v3/building-pavilion-tight.png',
+    houseA: 'assets/v3/house-a-tight.png', houseB: 'assets/v3/house-b-roof.png', houseC: 'assets/v3/house-c-roof.png',
     // Map v2 props (transparent *-full.png, re-keyed in assets/v3/).
     treeA: 'assets/v3/prop-tree-a-full.png', treeB: 'assets/v3/prop-tree-b-full.png',
     bushFlower: 'assets/v3/prop-bush-flower-full.png', lamp: 'assets/v3/prop-lamp-full.png',
@@ -182,6 +190,11 @@
     box: 'assets/v3/prop-box-full.png', dog: 'assets/v3/prop-dog-full.png',
     cat: 'assets/v3/prop-cat-full.png', car: 'assets/v3/prop-car-full.png',
     motorbike: 'assets/v3/prop-motorbike-full.png',
+    // VEHICLES FIX (2026-11-25): the bicycle had NO image at all (only the
+    // motorbike prop existed). FLUX v2, high-angle, keyed out by
+    // make_v3_sprites.py — used for the parked owned bike + the ridden bike
+    // under the player. The motorbike prop is reused for the same.
+    bicycle: 'assets/v3/prop-bicycle-full.png',
     fenceSeg: 'assets/v3/prop-fence-segment-full.png', fenceCorner: 'assets/v3/prop-fence-corner-full.png',
     // M2: *-full.png = transparent full-body sprites for IN-WORLD characters.
     // *-crop.png (portrait crops) are ONLY for the small HUD avatar — never
@@ -236,6 +249,19 @@
   var started = false;
   var scale = 1;
   var longPressTimer = null, longPressPos = null;
+  // TAP-TO-TALK (2026-11-25, phone play-test): long-press was the only
+  // touch path and NPCs walk away in 500ms, so the menu opened on empty
+  // air. A quick tap (<350ms, <14px move) on a nearby NPC/player now
+  // opens the radial menu instantly; long-press stays as a fallback.
+  var tapDown = null; // {sx, sy, t, wx, wy} — screen + world coords of pointerdown
+  var talkHint = null; // world-space floating "💬" above the nearest in-range NPC/player
+  // VEHICLES FIX (2026-11-25): the ridden vehicle was invisible (speed
+  // changed but no sprite, no indicator) and owned parked vehicles were
+  // never drawn — the player could not find or see their bike. rideSpr is
+  // the vehicle sprite under the player; parkedVehicleNodes holds one
+  // labelled container per vehicle type for the parked owned vehicles.
+  var rideSpr = null;
+  var parkedVehicleNodes = {}; // id -> {c, spr}
   var radialTarget = null; // {kind, name, x, y, npc}
   var bubbleTimer = null;
   var minimapTimer = 0, fpsTimer = 0, fpsCount = 0, fpsValue = 60;
@@ -465,6 +491,16 @@
     return AVATAR_COLOR[avatarKey] !== undefined ? AVATAR_COLOR[avatarKey] : 0x2980b9;
   }
 
+  // Aspect-preserving contain-fit (render fix 2026-11-25): fit a texture
+  // of (tw x th) inside rect (x,y,w,h), centred. NEVER stretch a sprite
+  // into a collider rect — a 1024x1024 FLUX scene stretched into a
+  // 480x360 rect painted fake streets / brown asphalt inside the block.
+  function fitRect(tw, th, x, y, w, h) {
+    var s = Math.min(w / tw, h / th);
+    var fw = tw * s, fh = th * s;
+    return { x: x + (w - fw) / 2, y: y + (h - fh) / 2, w: fw, h: fh };
+  }
+
   function buildWorld() {
     world = new PIXI.Container();
     app.stage.addChild(world);
@@ -481,6 +517,19 @@
     ground.eventMode = 'static';
     ground.on('pointerdown', onWorldPointerDown);
     world.addChild(ground);
+
+    // Map v2 §4: flower-garden beds — drawn BEFORE the roads (2026-11-25
+    // render fix): Garden A overlaps the vertical road band [1140,1320]
+    // by 60px and the horizontal band [2340,2520] by 120px, Garden B the
+    // vertical band [3540,3720] by 60px. Beds were drawn AFTER the roads,
+    // so they covered road segments and broke the road continuity.
+    var gardens = (typeof Colliders !== 'undefined' && Colliders.GARDENS) ? Colliders.GARDENS : [];
+    gardens.forEach(function (gd) {
+      var bed = new PIXI.Graphics();
+      bed.rect(gd.x, gd.y, gd.w, gd.h).fill(0x7fbf5a);
+      world.addChild(bed);
+      cullables.push({ obj: bed, x: gd.x, y: gd.y, w: gd.w, h: gd.h });
+    });
 
     // Map v2 §2: roads 180px asphalt + 40px beige sidewalks on BOTH sides
     // of every road (pedestrians on sidewalks/grass, vehicles on the road),
@@ -504,19 +553,22 @@
     }
     world.addChild(roads);
 
-    // central plaza (2070,2070,660,660) — the v3 map texture is used ONLY
-    // here as the plaza ground (1024px stretched over 660px stays sharp)
-    // and for the minimap/start backdrop; the rest of the map is drawn
-    // from the layout data above. Fountain is a blocking circle r=90.
-    if (TEX.plaza) {
-      var plazaSpr = new PIXI.Sprite(TEX.plaza);
+    // central plaza (2070,2070,660,660) — plazaGround is the CENTRE crop
+    // of the v3 map texture (fountain only, 624x624). The FULL district
+    // image was drawn here before (2026-11-25 render fix): it painted its
+    // own roads + edge buildings INSIDE the plaza, incl. a fake horizontal
+    // road at world y~2620-2700 — right where the player spawns — that
+    // connected to nothing (the "brown streak" / broken roads live bug).
+    // Fountain is a blocking circle r=90.
+    if (TEX.plazaGround) {
+      var plazaSpr = new PIXI.Sprite(TEX.plazaGround);
       plazaSpr.width = 660; plazaSpr.height = 660;
       plazaSpr.position.set(2070, 2070);
       world.addChild(plazaSpr);
       cullables.push({ obj: plazaSpr, x: 2070, y: 2070, w: 660, h: 660 });
     }
     var plaza = new PIXI.Graphics();
-    if (!TEX.plaza) {
+    if (!TEX.plazaGround) {
       plaza.rect(2070, 2070, 660, 660).fill(0xd6c9a8);
       plaza.rect(2070, 2070, 660, 660).stroke({ width: 4, color: 0xb8a888 });
     }
@@ -524,22 +576,15 @@
     plaza.circle(2400, 2400, 90).stroke({ width: 4, color: 0x2e86c1 });
     plaza.circle(2400, 2400, 36).fill(0x85c1e9);
     var plazaLabel = text('Quảng Trường Trung Tâm', 22, 0x5d4037, true);
-    if (TEX.plaza) plazaLabel.style.stroke = { color: 0xffffff, width: 4 };
+    if (TEX.plazaGround) plazaLabel.style.stroke = { color: 0xffffff, width: 4 };
     plazaLabel.anchor.set(0.5, 0.5); plazaLabel.position.set(2400, 2145);
     world.addChild(plaza, plazaLabel);
     cullables.push({ obj: plaza, x: 2070, y: 2070, w: 660, h: 660 });
     cullables.push({ obj: plazaLabel, x: 2070, y: 2070, w: 660, h: 60 });
 
-    // Map v2 §4: flower gardens — light-green beds inside, fence sprites
-    // along the blocking rects (gaps stay open, see Colliders.FENCES),
-    // bushes + benches inside (decorative only, no collision).
-    var gardens = (typeof Colliders !== 'undefined' && Colliders.GARDENS) ? Colliders.GARDENS : [];
-    gardens.forEach(function (gd) {
-      var bed = new PIXI.Graphics();
-      bed.rect(gd.x, gd.y, gd.w, gd.h).fill(0x7fbf5a);
-      world.addChild(bed);
-      cullables.push({ obj: bed, x: gd.x, y: gd.y, w: gd.w, h: gd.h });
-    });
+    // Map v2 §4: flower gardens — beds are drawn BEFORE the roads above
+    // (render fix 2026-11-25); only bushes + benches are drawn here
+    // (decorative only, no collision).
     // bushes: Garden A x3, Garden B x2 (design §4)
     var bushSpots = gdBushSpots();
     bushSpots.forEach(function (s) {
@@ -551,27 +596,35 @@
       propSprite('bench', s[0], s[1], 56);
     });
 
-    // buildings (Map v2): the M0 coloured rect stays as backing; the v3
-    // sprite is drawn over it, sized exactly to the collider rect (roof
-    // crops for the 3/4-front buildings, full images for the flat ones).
-    // No rounded mask — v3 images are full-bleed, no white corners to hide.
+    // buildings (Map v2): the M0 coloured rect stays as flat backing; the
+    // v3 sprite is drawn over it, CONTAIN-FIT centred inside the collider
+    // rect (fitRect — render fix 2026-11-25). The old code stretched every
+    // sprite to exactly (b.w x b.h): roof crops are e.g. 705x210 stretched
+    // to 480x360 (1.71x vertical) and full 1024x1024 scenes painted fake
+    // streets + brown asphalt inside their blocks. Roof strip / door /
+    // windows are fallback detail ONLY when there is no texture — with a
+    // texture they would poke out around the contain-fit sprite.
     BUILDINGS.forEach(function (b) {
       var c = new PIXI.Container();
       var g = new PIXI.Graphics();
       g.rect(b.x, b.y, b.w, b.h).fill(b.color);
       g.rect(b.x, b.y, b.w, b.h).stroke({ width: 3, color: 0x000000, alpha: 0.3 });
-      // roof strip + door + windows (fallback detail when no texture)
-      g.rect(b.x, b.y, b.w, 26).fill(b.roof);
-      g.rect(b.x + b.w / 2 - 16, b.y + b.h - 34, 32, 34).fill(0x5d4037);
-      for (var wx = b.x + 22; wx < b.x + b.w - 30; wx += 52) {
-        g.rect(wx, b.y + 44, 28, 26).fill(0xbfe3ff);
+      var bTexKey = POI_TEX[b.id] || HOUSE_TEX[b.id];
+      var bTex = (bTexKey && TEX[bTexKey]) || null;
+      if (!bTex) {
+        // fallback detail when no texture
+        g.rect(b.x, b.y, b.w, 26).fill(b.roof);
+        g.rect(b.x + b.w / 2 - 16, b.y + b.h - 34, 32, 34).fill(0x5d4037);
+        for (var wx = b.x + 22; wx < b.x + b.w - 30; wx += 52) {
+          g.rect(wx, b.y + 44, 28, 26).fill(0xbfe3ff);
+        }
       }
       c.addChild(g);
-      var bTexKey = POI_TEX[b.id] || HOUSE_TEX[b.id];
-      if (bTexKey && TEX[bTexKey]) {
-        var bspr = new PIXI.Sprite(TEX[bTexKey]);
-        bspr.width = b.w; bspr.height = b.h;
-        bspr.position.set(b.x, b.y);
+      if (bTex) {
+        var fit = fitRect(bTex.width, bTex.height, b.x, b.y, b.w, b.h);
+        var bspr = new PIXI.Sprite(bTex);
+        bspr.width = fit.w; bspr.height = fit.h;
+        bspr.position.set(fit.x, fit.y);
         c.addChild(bspr);
       }
       var label = text(b.name, 20, 0xffffff, true);
@@ -679,6 +732,35 @@
     [1500, 1600, 1700, 1800, 1900].forEach(function (bx) {
       propSprite('motorbike', bx, 3080, 34);
     });
+    // VEHICLES FIX (2026-11-25): the OWNED parked vehicles — one labelled
+    // container per type (sprite + green ring + "Xe … của bạn" label), shown
+    // by syncParkedVehicles() at the parked spot from the vehicle state.
+    // Before this fix nothing was drawn there: the player was told "xe đang
+    // đỗ ở Showroom" but saw only the 5 decorative bikes, none of them
+    // theirs, and mounting (80px range) felt like it did nothing.
+    ['bicycle', 'motorbike'].forEach(function (id) {
+      var c = new PIXI.Container();
+      var tex = TEX[id] || null;
+      var spr = null;
+      if (tex) {
+        spr = new PIXI.Sprite(tex);
+        spr.anchor.set(0.5, 0.5);
+        if (id === 'bicycle') { spr.width = 56; spr.height = 56 * tex.height / tex.width; }
+        else { spr.width = 34; spr.height = 34 * tex.height / tex.width; }
+        c.addChild(spr);
+      }
+      var ring = new PIXI.Graphics();
+      ring.ellipse(0, 10, 32, 15).stroke({ width: 3, color: 0x2ecc71 });
+      c.addChild(ring);
+      var lbl = text(id === 'motorbike' ? 'Xe máy của bạn' : 'Xe đạp của bạn', 12, 0xffffff, true);
+      lbl.anchor.set(0.5, 0.5);
+      lbl.position.set(0, -42);
+      lbl.style.stroke = { color: 0x000000, width: 4 };
+      c.addChild(lbl);
+      c.visible = false;
+      world.addChild(c);
+      parkedVehicleNodes[id] = { c: c, spr: spr };
+    });
     propSprite('car', 4000, 1920, 90);
     propSprite('car', 3900, 1010, 90);
     propSprite('car', 2850, 3130, 90);
@@ -749,6 +831,14 @@
     player.position.set(playerState.x, playerState.y);
     world.addChild(player);
     playerGfx = player;
+    // VEHICLES FIX (2026-11-25): the ridden vehicle sprite, a child of the
+    // player container at index 1 (behind the face, above the shadow) so it
+    // follows the player + camera. syncRideSprite() sets its texture/size.
+    rideSpr = new PIXI.Sprite(PIXI.Texture.EMPTY);
+    rideSpr.anchor.set(0.5, 0.5);
+    rideSpr.position.set(0, 8);
+    rideSpr.visible = false;
+    player.addChildAt(rideSpr, 1);
 
     // M3 (§6.2): delivery arrow — a world-space line + triangle from the
     // player toward the active order's target, redrawn every frame.
@@ -795,6 +885,15 @@
     hub.circle(0, 0, 20).fill({ color: 0x000000, alpha: 0.55 });
     hub.circle(0, 0, 20).stroke({ width: 2, color: 0xffffff });
     radialMenu.addChild(hub);
+    // TAP-TO-TALK (2026-11-25): floating "💬" above the nearest in-range
+    // NPC/player — world-space so it follows the camera. eventMode 'none'
+    // so it never eats the tap it advertises.
+    talkHint = text('💬', 26, 0xffffff, true);
+    talkHint.anchor.set(0.5, 0.5);
+    talkHint.style.stroke = { color: 0x000000, width: 5 };
+    talkHint.eventMode = 'none';
+    talkHint.visible = false;
+    world.addChild(talkHint);
   }
 
   function buildBubble() {
@@ -838,8 +937,97 @@
     b.gfx.circle(0, 0, 32).stroke({ width: 3, color: 0xffffff });
   }
 
+  // VEHICLES FIX (2026-11-25): which vehicle (if any) the player is
+  // riding right now. Online it is the server-synced playerState.vehicleId;
+  // offline applyToState() never syncs it, so read Economy.getRiding().
+  function currentRidingId() {
+    if (playerState.vehicleId) return playerState.vehicleId;
+    if (netMode !== 'online' && typeof Economy !== 'undefined' && Economy.getRiding) {
+      return Economy.getRiding() || '';
+    }
+    return '';
+  }
+  // Owned-vehicle state for the world (parked positions included — the
+  // server status message carries x/y, and so does Economy.getVehicleState).
+  function vehicleStateForWorld() {
+    if (netMode === 'online') return onlineVehicles;
+    if (typeof Economy !== 'undefined' && Economy.getVehicleState) return Economy.getVehicleState();
+    return { riding: '', bicycle: { owned: false }, motorbike: { owned: false } };
+  }
+  // Tap targets for the owned parked vehicles (nearestTarget includes them,
+  // so tapping your parked bike opens the radial with "Lên xe").
+  function parkedVehicleTargets() {
+    var vs = vehicleStateForWorld();
+    var out = [];
+    ['bicycle', 'motorbike'].forEach(function (id) {
+      var v = vs[id];
+      if (v && v.owned && vs.riding !== id && typeof v.x === 'number' && typeof v.y === 'number') {
+        out.push({ kind: 'vehicle', vehicleId: id, name: id === 'motorbike' ? 'Xe máy của bạn' : 'Xe đạp của bạn', x: v.x, y: v.y, npc: null });
+      }
+    });
+    return out;
+  }
+  // Parked owned vehicles: show the sprite + green ring + label at the
+  // parked spot, hide while riding (the bike is under the player then) or
+  // when not owned. Called once per ticker tick — 2 sprites, cheap.
+  function syncParkedVehicles() {
+    var vs = vehicleStateForWorld();
+    ['bicycle', 'motorbike'].forEach(function (id) {
+      var node = parkedVehicleNodes[id];
+      if (!node) return;
+      var v = vs[id];
+      var show = !!(v && v.owned && vs.riding !== id && typeof v.x === 'number' && typeof v.y === 'number');
+      node.c.visible = show;
+      if (show) node.c.position.set(v.x, v.y);
+    });
+  }
+  // Ridden vehicle under the player: the bike sprite is a child of the
+  // player container (index 1, behind the face, above the shadow), so it
+  // follows the player and the camera for free. Texture + size follow the
+  // ridden type; hidden on foot.
+  function syncRideSprite() {
+    if (!rideSpr) return;
+    var ridingId = currentRidingId();
+    if (!ridingId) { rideSpr.visible = false; return; }
+    var tex = TEX[ridingId] || null;
+    if (!tex) { rideSpr.visible = false; return; }
+    if (rideSpr.texture !== tex) rideSpr.texture = tex;
+    // Aspect-preserving, sized to read at game scale: bicycle is wide
+    // (472x360) -> 56px wide; motorbike is tall (204x360) -> 34px wide,
+    // same as the decorative parked motorbikes.
+    if (ridingId === 'bicycle') { rideSpr.width = 56; rideSpr.height = 56 * tex.height / tex.width; }
+    else { rideSpr.width = 34; rideSpr.height = 34 * tex.height / tex.width; }
+    rideSpr.visible = true;
+  }
+  // Contextual LÊN XE / XUỐNG XE DOM button (#rideBtn, bottom centre).
+  // Riding -> "XUỐNG XE". On foot near a parked owned vehicle (within the
+  // 80px mount range) -> "LÊN XE". Otherwise hidden — and hidden while the
+  // chat or any econ panel is open, so it never covers them.
+  function updateRideButton() {
+    var b = document.getElementById('rideBtn');
+    if (!b) return;
+    if (!started || chatOpen || playerState.isFainted) { b.style.display = 'none'; return; }
+    if (document.querySelector('.econPanel.open')) { b.style.display = 'none'; return; }
+    if (currentRidingId()) {
+      b.textContent = 'XUỐNG XE';
+      b.style.display = 'block';
+      return;
+    }
+    var near = parkedVehicleTargets().some(function (t) {
+      return Math.hypot(t.x - playerState.x, t.y - playerState.y) <= 80;
+    });
+    if (near) {
+      b.textContent = 'LÊN XE';
+      b.style.display = 'block';
+    } else {
+      b.style.display = 'none';
+    }
+  }
+
   function nearestTarget(wx, wy) {
-    var best = null, bestD = 150;
+    // TAP-TO-TALK (2026-11-25): range is 120px (NPC-talk range, §10.2) for
+    // every path — tap, long-press and right-click alike.
+    var best = null, bestD = 120;
     npcs.forEach(function (n) {
       var d = Math.hypot(n.x - wx, n.y - wy);
       if (d < bestD) { bestD = d; best = { kind: 'npc', name: n.name, x: n.x, y: n.y, npc: n }; }
@@ -857,6 +1045,12 @@
         best = { kind: 'player', name: r.name, x: r.rx, y: r.ry, npc: null, id: id, remote: r, isBot: r.isBot, isFainted: r.isFainted, personaId: r.personaId };
       }
     });
+    // VEHICLES FIX (2026-11-25): owned parked vehicles are tap targets —
+    // tapping your parked bike opens the radial with "Lên xe".
+    parkedVehicleTargets().forEach(function (t) {
+      var d = Math.hypot(t.x - wx, t.y - wy);
+      if (d < bestD) { bestD = d; best = t; }
+    });
     return best;
   }
 
@@ -866,7 +1060,10 @@
     radialMenu.visible = true;
     // M2: button 0 becomes context action for POIs — Cửa hàng at the shop,
     // ATM at the bank (SRS §11 Radial Menu, max 4 buttons).
-    if (target.kind === 'poi') {
+    // VEHICLES FIX (2026-11-25): tapping your parked vehicle offers "Lên xe".
+    if (target.kind === 'vehicle') {
+      setRadialButton(0, 'Lên xe', 'mount', 0x27ae60, true);
+    } else if (target.kind === 'poi') {
       if (target.id === 'shop' || target.name.indexOf('Cửa Hàng') === 0) {
         setRadialButton(0, 'Cửa hàng', 'shop', 0xe67e22, true);
       } else if (target.id === 'bank' || target.name.indexOf('Ngân Hàng') === 0) {
@@ -900,6 +1097,19 @@
     if (!radialTarget) { closeRadial(); return; }
     var t = radialTarget;
     if (action === 'close') { closeRadial(); return; }
+    // VEHICLES FIX (2026-11-25): mount from the radial — same path as the
+    // E key / job panel button (Jobs.mountNearest handles online + offline
+    // and the 80px range check; TOO_FAR tells the player where the bike is).
+    if (action === 'mount') {
+      closeRadial();
+      if (typeof Jobs !== 'undefined' && Jobs.mountNearest) Jobs.mountNearest();
+      else if (typeof Economy !== 'undefined' && Economy.mountVehicle && t.vehicleId) {
+        var res = Economy.mountVehicle(t.vehicleId);
+        if (!res.ok) appendChatLog('', '', 'Không lên xe được: ' + (res.error || ''), true);
+      }
+      sfx('click');
+      return;
+    }
     // M2: shop / ATM open the DOM panels (Hybrid UI: money input is DOM).
     if (action === 'shop') {
       closeRadial();
@@ -1023,12 +1233,17 @@
       if (target) openRadial(target); else closeRadial();
       return;
     }
+    // TAP-TO-TALK (2026-11-25): record the tap start — the window
+    // pointerup handler opens the radial instantly on a quick tap.
+    // (e.global is canvas coords; the canvas fills the window, so it
+    // matches clientX/Y used at pointerup.)
+    tapDown = { sx: e.global.x, sy: e.global.y, t: Date.now(), wx: w.x, wy: w.y };
     // left click / touch: close menu if clicked elsewhere, else arm long-press
     if (radialMenu.visible) {
       var rt = radialTarget;
       if (!rt || Math.hypot(w.x - rt.x, w.y - rt.y) > 130) closeRadial();
     }
-    // long-press for touch (500ms, hold still)
+    // long-press for touch (500ms, hold still) — fallback, tap is primary
     if (e.pointerType === 'touch' || e.data.pointerType === 'touch') {
       clearLongPress();
       longPressPos = { x: w.x, y: w.y, sx: e.global.x, sy: e.global.y };
@@ -1042,6 +1257,39 @@
   function clearLongPress() {
     if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
     longPressPos = null;
+  }
+  // TAP-TO-TALK: a quick tap (<350ms, <14 screen px) on the world opens the
+  // radial menu for the nearest target within 120px (searched at the DOWN
+  // position — the NPC may have walked a few px by pointerup). Called from
+  // the window pointerup handler in boot().
+  function handleTap(e) {
+    if (!tapDown) return false;
+    var d = tapDown; tapDown = null;
+    if (!started || chatOpen) return false;
+    if (e.target !== app.view) return false; // tap ended on a DOM panel/button
+    if (pinchActive) return false; // two-finger pinch, not a tap
+    if (Date.now() - d.t >= 350) return false; // too slow — long-press path owns it
+    if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) >= 14) return false; // dragged
+    var t = nearestTarget(d.wx, d.wy);
+    if (t) { openRadial(t); sfx('click'); }
+    else if (radialMenu.visible) { closeRadial(); }
+    return !!t;
+  }
+  // Floating "💬" above the nearest NPC/player within 120px of the player,
+  // so the player knows who is tappable. Updated once per ticker tick.
+  function updateTalkHint() {
+    if (!talkHint) return;
+    if (!started || radialMenu.visible || chatOpen || playerState.isFainted) {
+      talkHint.visible = false;
+      return;
+    }
+    var t = nearestTarget(playerState.x, playerState.y);
+    if (t && (t.kind === 'npc' || t.kind === 'player')) {
+      talkHint.position.set(t.x, t.y - 58);
+      talkHint.visible = true;
+    } else {
+      talkHint.visible = false;
+    }
   }
 
   // ---------- HUD (Canvas only) ----------
@@ -1059,7 +1307,11 @@
     // Panel height must cover money bottom + padding: 122+18+12 = 152 abs,
     // i.e. height 148 (bottom 158, money bottom ~140 < 158-8). Mobile (BIG)
     // was already 158 (bottom 168, money bottom ~152) and is unchanged.
-    var panelW = HUD_BIG ? 300 : 300, panelH = HUD_BIG ? 158 : 148;
+    // PHONE FIX (2026-11-25, 390px play-test): the 300px mobile panel ran
+    // under the minimap (centre 308,82 r65 -> x243-373) and the money line
+    // collided with it. Mobile panel is now 236px wide (ends x246) and the
+    // minimap shrank to r48 at (W-56,56) -> x286-382: a 40px clear gap.
+    var panelW = HUD_BIG ? 236 : 300, panelH = HUD_BIG ? 158 : 148;
     var panel = new PIXI.Graphics();
     panel.roundRect(10, 10, panelW, panelH, 12).fill({ color: 0x000000, alpha: 0.55 });
     hud.addChild(panel);
@@ -1090,15 +1342,27 @@
     }
     var nameT = text(playerState.name, HUD_BIG ? 15 : 15, 0xffffff, true);
     nameT.anchor.set(0, 0.5); nameT.position.set(HUD_BIG ? 70 : 68, HUD_BIG ? 26 : 26); hud.addChild(nameT);
+    // PHONE FIX (2026-11-25): a long name ran under the centred netStatus
+    // pill ("Offline — chơi đơn") and looked truncated. Cap the name width
+    // to the panel (mobile 166px, desktop 232px): shrink, then ellipsis.
+    var nameMaxW = HUD_BIG ? 166 : 232;
+    while (nameT.width > nameMaxW && nameT.style.fontSize > 12) {
+      nameT.style.fontSize = nameT.style.fontSize - 1;
+    }
+    while (nameT.width > nameMaxW && nameT.text.length > 2) {
+      nameT.text = nameT.text.slice(0, -2) + '…';
+    }
     var jobT = text('Nghề: Chưa có', HUD_BIG ? 12 : 12, 0xdddddd);
     jobT.anchor.set(0, 0.5); jobT.position.set(HUD_BIG ? 70 : 68, HUD_BIG ? 46 : 46); hud.addChild(jobT);
 
     hudRefs.hpG = new PIXI.Graphics(); hud.addChild(hudRefs.hpG);
     hudRefs.hungerG = new PIXI.Graphics(); hud.addChild(hudRefs.hungerG);
     hudRefs.staminaG = new PIXI.Graphics(); hud.addChild(hudRefs.staminaG);
-    // bar geometry (shared with updateHUD): M2 bars 16px tall (was 20)
+    // bar geometry (shared with updateHUD): M2 bars 16px tall (was 20).
+    // PHONE FIX (2026-11-25): mobile bars 212 -> 160 so they end at x234,
+    // inside the 236px mobile panel.
     hudRefs.barGeom = HUD_BIG
-      ? { x: 74, w: 212, h: 16, ys: [68, 90, 112], labelX: 14, labelYs: [76, 98, 120], labelSize: 13 }
+      ? { x: 74, w: 160, h: 16, ys: [68, 90, 112], labelX: 14, labelYs: [76, 98, 120], labelSize: 13 }
       : { x: 52, w: 190, h: 14, ys: [61, 79, 97], labelX: 14, labelYs: [68, 86, 104], labelSize: 12 };
     var bg = hudRefs.barGeom;
     barLabel('HP', bg.labelX, bg.labelYs[0], hud, bg.labelSize);
@@ -1106,17 +1370,27 @@
     barLabel('Thể lực', bg.labelX, bg.labelYs[2], hud, bg.labelSize);
     hudRefs.moneyT = text('', HUD_BIG ? 14 : 14, 0xffe082, true);
     hudRefs.moneyT.anchor.set(0, 0); hudRefs.moneyT.position.set(14, HUD_BIG ? 134 : 122); hud.addChild(hudRefs.moneyT);
+    // VEHICLES FIX (2026-11-25): riding indicator — the old build showed
+    // nothing while riding, so mounting "seemed to do nothing". Centred at
+    // the bottom (position set in layoutHUD, text set in updateHUD); hidden
+    // on foot. NOT under the panel: the mobile netStatus pill sits at y174.
+    hudRefs.rideT = text('', HUD_BIG ? 13 : 13, 0x7dff9e, true);
+    hudRefs.rideT.anchor.set(0.5, 0.5);
+    hudRefs.rideT.style.stroke = { color: 0x000000, width: 4 };
+    hud.addChild(hudRefs.rideT);
 
-    // top-right: minimap + clock
+    // top-right: minimap + clock. PHONE FIX (2026-11-25): mobile minimap
+    // r65 -> r48 via minimapR(), centred (W-56,56) in layoutHUD — it no
+    // longer covers the money line; the clock moves under it.
     hudRefs.minimapWrap = new PIXI.Container(); hud.addChild(hudRefs.minimapWrap);
     minimapMask = new PIXI.Graphics();
-    minimapMask.circle(0, 0, 65).fill(0xffffff);
+    minimapMask.circle(0, 0, minimapR()).fill(0xffffff);
     hudRefs.minimapWrap.addChild(minimapMask);
     minimapG = new PIXI.Graphics();
     minimapG.mask = minimapMask;
     hudRefs.minimapWrap.addChild(minimapG);
     var ring = new PIXI.Graphics();
-    ring.circle(0, 0, 65).stroke({ width: 4, color: 0xffffff });
+    ring.circle(0, 0, minimapR()).stroke({ width: 4, color: 0xffffff });
     hudRefs.minimapWrap.addChild(ring);
     hudRefs.clockT = text('08:00', HUD_BIG ? 14 : 16, 0xffffff, true);
     hudRefs.clockT.anchor.set(0.5, 0);
@@ -1125,8 +1399,8 @@
     // bottom hint bar — M2: shortened on mobile + smaller font so it fits
     // 390px wide (the M1 hint overflowed the screen width).
     hudRefs.hintT = text(HUD_BIG
-      ? 'Joystick: di chuyển  •  CHẠY: chạy nhanh  •  Giữ: mở menu'
-      : 'WASD / Mũi tên: di chuyển  •  Shift: chạy nhanh  •  Chuột phải / chạm giữ: mở menu', HUD_BIG ? 12 : 14, 0xffffff, false);
+      ? 'Joystick: di chuyển  •  CHẠY: chạy nhanh  •  Chạm NPC: nói chuyện'
+      : 'WASD / Mũi tên: di chuyển  •  Shift: chạy nhanh  •  Chạm NPC: nói chuyện (chuột phải cũng được)', HUD_BIG ? 12 : 14, 0xffffff, false);
     hudRefs.hintT.anchor.set(0.5, 0.5);
     hudRefs.hintT.style.stroke = { color: 0x000000, width: 4 };
     hud.addChild(hudRefs.hintT);
@@ -1137,8 +1411,11 @@
 
     // M3 (§6.2): order status line — countdown + distance + reward, shown
     // top-centre under the netStatus pill while an order is active.
-    hudRefs.orderT = text('', 14, 0xffe082, true);
-    hudRefs.orderT.anchor.set(0.5, 0);
+    // PHONE FIX (2026-11-25): on mobile it is 12px, LEFT-aligned at x14 —
+    // centred at 14px it was ~315px wide and ran into the right button
+    // column (x328+) on a 700px-tall screen.
+    hudRefs.orderT = text('', HUD_BIG ? 12 : 14, 0xffe082, true);
+    hudRefs.orderT.anchor.set(HUD_BIG ? 0 : 0.5, 0);
     hudRefs.orderT.style.stroke = { color: 0x000000, width: 4 };
     hud.addChild(hudRefs.orderT);
     // M3: keep the HUD job label in sync (buildHUD only set the initial text).
@@ -1209,12 +1486,13 @@
     }
     var cashStr = 'Tiền mặt: ' + Math.floor(playerState.cash).toLocaleString('vi-VN') + 'đ';
     var bankStr = 'Ngân hàng: ' + Math.floor(playerState.bank).toLocaleString('vi-VN') + 'đ';
-    // M2: ONE line, panel is 300px wide; shrink the font if a big balance
-    // would overflow the panel (user: "chữ không đúng trong khung").
+    // M2: ONE line, panel is 300px wide (236px mobile); shrink the font
+    // if a big balance would overflow the panel (user: "chữ không đúng trong khung").
     var moneySize = 14;
     hudRefs.moneyT.style.fontSize = moneySize;
     hudRefs.moneyT.text = cashStr + '  •  ' + bankStr;
-    while (hudRefs.moneyT.width > 272 && moneySize > 11) {
+    var moneyMaxW = HUD_BIG ? 212 : 272;
+    while (hudRefs.moneyT.width > moneyMaxW && moneySize > 11) {
       moneySize -= 1;
       hudRefs.moneyT.style.fontSize = moneySize;
     }
@@ -1222,6 +1500,20 @@
     var clockStr = (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;
     var isNight = hh >= 18 || hh < 6;
     hudRefs.clockT.text = clockStr + (isNight ? '  •  Đêm' : '  •  Ngày');
+    // VEHICLES FIX (2026-11-25): riding indicator — speed + how to
+    // dismount. Hidden on foot (empty text). Kept SHORT on purpose: the
+    // full text with fuel % is ~310px and would overlap the FPS counter
+    // at 390px; fuel/durability stay visible in the job + shop panels.
+    if (hudRefs.rideT) {
+      var ridingId = currentRidingId();
+      if (ridingId) {
+        var spd = ridingId === 'motorbike' ? 324 : 234;
+        hudRefs.rideT.text = (ridingId === 'motorbike' ? '🏍 Xe máy' : '🚲 Xe đạp') +
+          ' • ' + spd + ' px/s • E: xuống xe';
+      } else {
+        hudRefs.rideT.text = '';
+      }
+    }
   }
 
   // M3: the active Shipper order, from the server state (online, synced
@@ -1278,40 +1570,40 @@
   }
 
   function drawMinimap() {
-    var s = 130 / MAP_W;
+    var R = minimapR(), s = 2 * R / MAP_W;
     minimapG.clear();
-    minimapG.circle(0, 0, 65).fill(0x5da24a);
+    minimapG.circle(0, 0, R).fill(0x5da24a);
     // roads (Map v2: 180px bands)
     ROAD_BANDS.forEach(function (p) {
-      minimapG.rect(-65, (p + ROAD_W / 2) * s - 65, 130, ROAD_W * s).fill(0x3d3d3d);
-      minimapG.rect((p + ROAD_W / 2) * s - 65, -65, ROAD_W * s, 130).fill(0x3d3d3d);
+      minimapG.rect(-R, (p + ROAD_W / 2) * s - R, 2 * R, ROAD_W * s).fill(0x3d3d3d);
+      minimapG.rect((p + ROAD_W / 2) * s - R, -R, ROAD_W * s, 2 * R).fill(0x3d3d3d);
     });
     BUILDINGS.forEach(function (b) {
-      minimapG.rect(b.x * s - 65, b.y * s - 65, b.w * s, b.h * s).fill(0x888888);
+      minimapG.rect(b.x * s - R, b.y * s - R, b.w * s, b.h * s).fill(0x888888);
     });
     POIS.forEach(function (p) {
-      minimapG.circle(p.x * s - 65, p.y * s - 65, 3.5).fill(p.color);
+      minimapG.circle(p.x * s - R, p.y * s - R, 3.5).fill(p.color);
     });
     npcs.forEach(function (n) {
-      minimapG.circle(n.x * s - 65, n.y * s - 65, 3).fill(0xdddddd);
+      minimapG.circle(n.x * s - R, n.y * s - R, 3).fill(0xdddddd);
     });
     // Map v2 §7: animals as small brown dots on the minimap.
     animals.forEach(function (a) {
-      minimapG.circle(a.x * s - 65, a.y * s - 65, 2).fill(0x8d6e63);
+      minimapG.circle(a.x * s - R, a.y * s - R, 2).fill(0x8d6e63);
     });
     // M1: remote players (humans white, bots yellow) — dots big enough to tell apart
     Object.keys(remotePlayers).forEach(function (id) {
       var r = remotePlayers[id];
-      minimapG.circle(r.rx * s - 65, r.ry * s - 65, r.isBot ? 3.5 : 4).fill(r.isBot ? 0xf1c40f : 0xffffff);
+      minimapG.circle(r.rx * s - R, r.ry * s - R, r.isBot ? 3.5 : 4).fill(r.isBot ? 0xf1c40f : 0xffffff);
       // M3 (§3.2.3): a fainted remote player shows a red ring so a doctor
       // can spot them on the minimap.
-      if (r.isFainted) minimapG.circle(r.rx * s - 65, r.ry * s - 65, 6).stroke({ width: 2, color: 0xe74c3c });
+      if (r.isFainted) minimapG.circle(r.rx * s - R, r.ry * s - R, 6).stroke({ width: 2, color: 0xe74c3c });
     });
     // M3 (§3.4.3): faint alerts from the server — red X where someone fainted.
     var now = Date.now();
     faintAlerts = faintAlerts.filter(function (a) { return now < a.until; });
     faintAlerts.forEach(function (a) {
-      var ax = a.x * s - 65, ay = a.y * s - 65;
+      var ax = a.x * s - R, ay = a.y * s - R;
       minimapG.moveTo(ax - 5, ay - 5); minimapG.lineTo(ax + 5, ay + 5);
       minimapG.moveTo(ax + 5, ay - 5); minimapG.lineTo(ax - 5, ay + 5);
       minimapG.stroke({ width: 2.5, color: 0xe74c3c });
@@ -1319,13 +1611,13 @@
     // M3 (§6.2): delivery target — green diamond on the minimap.
     var order = currentOrder();
     if (order) {
-      var ox = order.targetX * s - 65, oy = order.targetY * s - 65;
+      var ox = order.targetX * s - R, oy = order.targetY * s - R;
       minimapG.moveTo(ox, oy - 6); minimapG.lineTo(ox + 6, oy);
       minimapG.lineTo(ox, oy + 6); minimapG.lineTo(ox - 6, oy);
       minimapG.closePath().fill(0x2ecc71);
     }
-    minimapG.circle(playerState.x * s - 65, playerState.y * s - 65, 5.5).fill(0xffffff);
-    minimapG.circle(playerState.x * s - 65, playerState.y * s - 65, 5.5).stroke({ width: 1.5, color: 0x2980b9 });
+    minimapG.circle(playerState.x * s - R, playerState.y * s - R, 5.5).fill(0xffffff);
+    minimapG.circle(playerState.x * s - R, playerState.y * s - R, 5.5).stroke({ width: 1.5, color: 0x2980b9 });
   }
 
   // ---------- virtual joystick + sprint (Canvas) ----------
@@ -1378,16 +1670,39 @@
     joyKnob.position.set(0, 0);
   }
 
+  // PHONE FIX (2026-11-25): minimap radius — 65 desktop, 48 on a phone
+  // (HUD_BIG). The 65px circle at (W-82,82) overlapped the 300px HUD panel
+  // and the money line on a 390px screen.
+  function minimapR() { return HUD_BIG ? 48 : 65; }
+
   function layoutHUD() {
     var W = app.renderer.width, H = app.renderer.height;
     if (hudRefs.minimapWrap) {
-      hudRefs.minimapWrap.position.set(W - 82, 82);
+      // mobile: centre (W-56,56) -> x286-382, y8-104: clear of the 236px
+      // panel (ends x246) and of the clock below it.
+      hudRefs.minimapWrap.position.set(HUD_BIG ? W - 56 : W - 82, HUD_BIG ? 56 : 82);
       minimapMask.position.set(0, 0);
     }
-    if (hudRefs.clockT) hudRefs.clockT.position.set(W - 82, 152);
-    if (hudRefs.orderT) hudRefs.orderT.position.set(W / 2, 36);
+    if (hudRefs.clockT) hudRefs.clockT.position.set(HUD_BIG ? W - 56 : W - 82, HUD_BIG ? 112 : 152);
+    // PHONE FIX (2026-11-25): the order line was at (W/2,36) — on a 390px
+    // phone that lands INSIDE the HUD panel, on top of the "Nghề:" line
+    // (x70-160, y40-52). Mobile order line now sits at the bottom-left
+    // (14, H-200), above the riding indicator (H-148); centred it ran
+    // into the right button column on a 700px-tall screen. Desktop keeps
+    // (W/2,36) where the panel is far left of the centre.
+    if (hudRefs.orderT) hudRefs.orderT.position.set(HUD_BIG ? 14 : W / 2, HUD_BIG ? H - 200 : 36);
     if (hudRefs.hintT) hudRefs.hintT.position.set(W / 2, H - 18);
-    if (hudRefs.fpsT) hudRefs.fpsT.position.set(W - 10, H - 8);
+    // VEHICLES FIX (2026-11-25): riding indicator centred just above the
+    // joystick/sprint (joystick base r50 at (78,H-84) spans y H-134..H-34,
+    // sprint r28 spans y H-112..H-56 — the first draft at H-42 overlapped
+    // the joystick). At H-148 it clears both (7px above the joystick top)
+    // and the DOM ride button (bottom 64px, y H-108..H-64).
+    if (hudRefs.rideT) hudRefs.rideT.position.set(W / 2, H - 148);
+    // PHONE FIX (2026-11-25): FPS was at (W-10,H-8) — same band as the
+    // hint line (H-24..H-12), so "60 FPS" was half-covered by it. Mobile
+    // FPS now sits at H-30 (occupies H-42..H-30), clear of the hint line
+    // and of the sprint button (ends H-44).
+    if (hudRefs.fpsT) hudRefs.fpsT.position.set(W - 10, HUD_BIG ? H - 30 : H - 8);
     if (joyBase) joyBase.position.set(78, H - 84);
     if (sprintBtn) sprintBtn.position.set(W - 78, H - 84);
     if (zoomOutBtn) zoomOutBtn.position.set(W - 122, 202);
@@ -1433,7 +1748,7 @@
     startOverlay.userData = { bg: bg, backdrop: backdrop };
     var title = text('CUỘC SỐNG ẢO', 44, 0xffe082, true);
     title.anchor.set(0.5, 0.5);
-    var sub = text('M3  •  PixiJS v8  •  Colyseus  •  Shipper + Sinh tồn + NPC', 16, 0xffffff);
+    var sub = text('M4  •  PixiJS v8  •  Colyseus  •  Xe cộ + Taxi + Bác sĩ + Nhà trọ', 16, 0xffffff);
     sub.anchor.set(0.5, 0.5);
     var statusT = text('Đang kiểm tra máy chủ…', 14, 0xffe082, true);
     statusT.anchor.set(0.5, 0.5);
@@ -1441,7 +1756,7 @@
     // overflowed a 390px phone screen ("chữ không đúng trong khung").
     var guide = text(
       'Joystick: di chuyển  •  Nút CHẠY: chạy nhanh\n' +
-      'Chạm giữ vào NPC / địa điểm: mở menu tròn\n' +
+      'Chạm vào NPC / người chơi gần bạn: mở menu tròn ngay\n' +
       'Bấm NGHỀ để chọn Shipper / Bác sĩ, nhận đơn ở Kho Hàng.\n' +
       'Tới Cửa Hàng mua bánh mì, tới Ngân Hàng gửi tiền.', 14, 0xdddddd);
     guide.anchor.set(0.5, 0.5);
@@ -2120,7 +2435,7 @@
     if (channel === 'private') {
       targetId = chatTargetId || nearestRemotePlayerId();
       if (!targetId) {
-        appendChatLog('', '', 'Chưa chọn người để nhắn riêng — chạm giữ vào một người chơi để mở menu.', true);
+        appendChatLog('', '', 'Chưa chọn người để nhắn riêng — chạm vào một người chơi để mở menu.', true);
         return;
       }
     }
@@ -2612,6 +2927,9 @@
         firstSelfSync = true;
         setNetStatus('Online…');
         setStartStatus('Online — đã kết nối lại');
+        // VEHICLES FIX (2026-11-25): re-ask the owned-vehicle status so a
+        // returning player's parked bike renders after a reconnect.
+        if (typeof NetClient.sendVehicle === 'function') NetClient.sendVehicle('status', {});
       },
       onReconnectFailed: function () {
         goOffline('reconnect-timeout-30s');
@@ -2632,6 +2950,11 @@
       // server starts Cash = 0 and grants 80.000đ here; syncSelf then keeps
       // the server value authoritative.
       if (typeof NetClient.sendEconomy === 'function') NetClient.sendEconomy('starter_grant', {});
+      // VEHICLES FIX (2026-11-25): ask for the owned-vehicle status too —
+      // otherwise a returning player never sees their parked bike online
+      // (status was only requested after a buy, so onlineVehicles stayed
+      // {owned:false} and syncParkedVehicles showed nothing).
+      if (typeof NetClient.sendVehicle === 'function') NetClient.sendVehicle('status', {});
     }).catch(function (err) {
       console.warn('[net] init failed:', err);
       goOffline('error');
@@ -2749,6 +3072,18 @@
       });
       sync();
     })();
+    // VEHICLES FIX (2026-11-25): contextual LÊN XE / XUỐNG XE button —
+    // same mount/dismount path as the E key (Jobs handles online + offline).
+    (function () {
+      var b = document.getElementById('rideBtn');
+      if (!b) return;
+      b.addEventListener('click', function () {
+        if (typeof Jobs === 'undefined') return;
+        if (currentRidingId()) Jobs.dismountCurrent();
+        else Jobs.mountNearest();
+        sfx('click');
+      });
+    })();
     initNet(); // async, non-blocking: online if a server answers, else offline
 
     window.addEventListener('keydown', function (e) {
@@ -2776,10 +3111,11 @@
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].indexOf(e.code) >= 0) e.preventDefault();
     });
     window.addEventListener('keyup', function (e) { keys[e.code] = false; });
-    window.addEventListener('pointerup', function () { clearLongPress(); if (joy.active) endJoy(); });
+    window.addEventListener('pointerup', function (e) { clearLongPress(); if (joy.active) endJoy(); handleTap(e); });
     window.addEventListener('pointermove', function (e) {
       if (joy.active) updateJoy(e);
       if (longPressPos && Math.hypot(e.clientX - longPressPos.sx, e.clientY - longPressPos.sy) > 14) clearLongPress();
+      if (tapDown && Math.hypot(e.clientX - tapDown.sx, e.clientY - tapDown.sy) > 14) tapDown = null;
     });
     window.addEventListener('resize', function () { updateCamera(); layoutHUD(); });
 
@@ -2843,6 +3179,10 @@
         updateAnimals(dt);
         updateRemotePlayers(dt);
         updateTaxiCustomerSprites();
+        updateTalkHint(); // TAP-TO-TALK: floating 💬 above the nearest in-range NPC/player
+        syncParkedVehicles(); // VEHICLES FIX: draw owned parked bikes at their spots
+        syncRideSprite(); // VEHICLES FIX: bike sprite under the player while riding
+        updateRideButton(); // VEHICLES FIX: contextual LÊN XE / XUỐNG XE button
         moveTick(dt);
         // M3: offline Shipper countdown/expiry, delivery arrow, faint panel.
         if (typeof Jobs !== 'undefined' && Jobs.tick) Jobs.tick(dt);

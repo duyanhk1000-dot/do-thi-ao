@@ -250,6 +250,16 @@ Detailed 2D top-down mobile city game, viewed from directly above, flat roofs se
 ```
 
 
+### prop-bicycle.png — 2026-11-25 (vehicles fix: the bicycle had NO image)
+
+v1 prompt (same style-lock as the motorbike, top-down constraint first):
+`Strictly top-down, camera directly overhead at exactly 90 degrees looking straight down, no isometric, no 3D perspective, no side view. 2D top-down mobile city game, Pixar animation style, rich shading, soft shadows, crisp clean shapes, vibrant colors, no text, no words, no watermark. One single blue bicycle seen from directly above, two thin black wheels in a straight vertical line, silver frame, black saddle, black handlebars with black grips, pedals, silver chain, centered on a solid bright magenta background, single object only, no rider, no people, no buildings, no street, no trees, fills 70 percent of the frame, bright daylight.`
+Result v1: FAIL angle — beautiful blue bike on clean magenta, but a 3/4 SIDE view (wheels horizontal). FLUX draws bicycles from the side by default; the 90-degree constraint was ignored, same failure mode as the v1 buildings.
+
+v2 (ONE change: the view description — explicit vertical layout + 70-degree high angle):
+`Strictly top-down, camera high above looking straight down at 70 degrees, bicycle standing vertically in the frame, front wheel at the top, rear wheel at the bottom, both wheels in one straight vertical line, handlebars across the top, black saddle in the middle, no isometric, no side view, no side profile. 2D top-down mobile city game, Pixar animation style, rich shading, soft shadows, crisp clean shapes, vibrant colors, no text, no words, no watermark. One single blue bicycle, silver frame, black saddle, black handlebars with black grips, pedals, silver chain, centered on a solid bright magenta background, single object only, no rider, no people, no buildings, no street, no trees, fills 70 percent of the frame, bright daylight.`
+Result v2: PASS — high-angle diagonal bike (front wheel bottom-right), matches the motorbike prop's high-angle look. Tiny gibberish text on the frame, invisible at 40-60px game size. A pure 90-degree top-down bicycle is a thin line; FLUX always adds elevation to show the object — v2 is the accepted look. Keyed out via `make_v3_sprites.py` (crop 180,220,850,740) -> `prop-bicycle-full.png` 472x360, magenta-left 0.0%.
+
 ### prop-car.png — 77 words
 
 ```

@@ -52,12 +52,19 @@
     { id: 'house9',    name: 'Nhà Dân',                x: 2670, y: 3840, w: 420, h: 390, color: 0xa9cce3, roof: 0x2e86c1 },
     { id: 'market',    name: 'Chợ',                    x: 3840, y: 3840, w: 630, h: 450, color: 0xf9e79f, roof: 0xb7950b },
     { id: 'police',    name: 'Đồn Công An',            x: 3720, y: 600,  w: 480, h: 360, color: 0x2c3e50, roof: 0x1a252f },
-    { id: 'school',    name: 'Trường Học',             x: 900,  y: 4200, w: 600, h: 420, color: 0xf5b7b1, roof: 0xec7063 },
-    { id: 'cafe',      name: 'Quán Cà Phê',            x: 2520, y: 4200, w: 360, h: 300, color: 0xa67c52, roof: 0x6e4b2a },
-    { id: 'pavilion',  name: 'Nhà Vọng Cảnh',          x: 3600, y: 600,  w: 300, h: 300, color: 0x7dcea0, roof: 0x2e86c1 },
-    { id: 'house10',   name: 'Nhà Dân',                x: 4200, y: 1425, w: 390, h: 300, color: 0xf1c40f, roof: 0xd4ac0d },
-    { id: 'house11',   name: 'Nhà Dân',                x: 4200, y: 2670, w: 390, h: 300, color: 0x82e0aa, roof: 0x229954 },
-    { id: 'house12',   name: 'Chung Cư',               x: 1500, y: 4200, w: 480, h: 360, color: 0xaed6f1, roof: 0x5dade2 }
+    // Render fix 2026-11-25: school was (900,4200) — overlapped the vertical
+    // road band [1140,1320] by 180px; pavilion was (3600,600) — overlapped
+    // the vertical road band [3540,3720] by 120px. Both moved clear of roads.
+    { id: 'school',    name: 'Trường Học',             x: 180,  y: 4240, w: 600, h: 420, color: 0xf5b7b1, roof: 0xec7063 },
+    { id: 'cafe',      name: 'Quán Cà Phê',            x: 2520, y: 4230, w: 360, h: 300, color: 0xa67c52, roof: 0x6e4b2a },
+    { id: 'pavilion',  name: 'Nhà Vọng Cảnh',          x: 4200, y: 600,  w: 300, h: 300, color: 0x7dcea0, roof: 0x2e86c1 },
+    // Render fix 2026-11-25: house10/house11 were (4200,1425)/(4200,2670) —
+    // overlapping the hospital (ends x4410) and warehouse (ends x4470) by
+    // 210/270px; house12/cafe overlapped house8/house9 by a 30px strip at
+    // y4200-4230. Moved to the free south-east block / +30px south.
+    { id: 'house10',   name: 'Nhà Dân',                x: 3840, y: 4320, w: 390, h: 300, color: 0xf1c40f, roof: 0xd4ac0d },
+    { id: 'house11',   name: 'Nhà Dân',                x: 4290, y: 4320, w: 390, h: 300, color: 0x82e0aa, roof: 0x229954 },
+    { id: 'house12',   name: 'Chung Cư',               x: 1500, y: 4230, w: 480, h: 360, color: 0xaed6f1, roof: 0x5dade2 }
   ];
 
   // Map v2 §4: garden fences, 12px thick, blocking EXCEPT at the corner

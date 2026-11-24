@@ -13,38 +13,63 @@
   #netStatus { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 6;
     background: rgba(0,0,0,0.55); color: #fff; font-family: sans-serif; font-size: 13px;
     padding: 5px 12px; border-radius: 999px; pointer-events: none; white-space: nowrap; }
-  /* --- CHAT button (mobile + desktop) --- */
-  #chatBtn { position: fixed; right: 14px; bottom: 168px; z-index: 6; width: 56px; height: 56px;
+  /* PHONE FIX (2026-11-25): on a narrow screen the centred pill sat on top
+     of the player name (canvas, x70 y26) and truncated it — and its right
+     end (x~270) also touched the zoom-out button at (268,202). Below the
+     panel, LEFT-aligned (x10-160): clear of the panel (ends y168), the
+     name, the zoom buttons and the order line (now at the bottom). */
+  @media (max-width: 800px) {
+    #netStatus { top: 174px; left: 10px; transform: none; }
+  }
+  /* --- round action buttons: ONE top-anchored column on the right ---
+     PHONE FIX (2026-11-25): the buttons were bottom-anchored (56px), so on
+     a short phone screen they rode up into the minimap (e.g. 700px viewport
+     -> VFX top 126, overlapping minimap y17-147). Now 48px, top-anchored,
+     8px gaps: VFX 246, SFX 302, NGHỀ 358, ATM 414, SHOP 470, CHAT 526
+     (column ends 574; the sprint button top is H-124, i.e. 576 on a 700px
+     screen — just clears). Caveat: screens shorter than ~700px may see the
+     CHAT button touch the sprint button; phones in portrait are taller. */
+  #chatBtn { position: fixed; right: 14px; top: 526px; z-index: 6; width: 48px; height: 48px;
     border-radius: 50%; border: 2px solid #fff; background: rgba(41,128,185,0.9); color: #fff;
-    font-family: sans-serif; font-size: 12px; font-weight: bold; cursor: pointer; }
+    font-family: sans-serif; font-size: 11px; font-weight: bold; cursor: pointer; }
   #chatBtn:active { background: rgba(31,97,141,0.95); }
   /* --- ATM button (M2 bug fix: there was no ATM button on screen) --- */
-  #atmBtn { position: fixed; right: 14px; bottom: 308px; z-index: 6; width: 56px; height: 56px;
+  #atmBtn { position: fixed; right: 14px; top: 414px; z-index: 6; width: 48px; height: 48px;
     border-radius: 50%; border: 2px solid #fff; background: rgba(142,68,173,0.9); color: #fff;
-    font-family: sans-serif; font-size: 12px; font-weight: bold; cursor: pointer; pointer-events: auto; }
+    font-family: sans-serif; font-size: 11px; font-weight: bold; cursor: pointer; pointer-events: auto; }
   #atmBtn:active { background: rgba(109,50,133,0.95); }
   /* --- SHOP button (M2) --- */
-  #shopBtn { position: fixed; right: 14px; bottom: 238px; z-index: 6; width: 56px; height: 56px;
+  #shopBtn { position: fixed; right: 14px; top: 470px; z-index: 6; width: 48px; height: 48px;
     border-radius: 50%; border: 2px solid #fff; background: rgba(39,174,96,0.9); color: #fff;
-    font-family: sans-serif; font-size: 12px; font-weight: bold; cursor: pointer; pointer-events: auto; }
+    font-family: sans-serif; font-size: 11px; font-weight: bold; cursor: pointer; pointer-events: auto; }
   #shopBtn:active { background: rgba(30,132,73,0.95); }
   /* --- SFX toggle (M3 skills revision, audio-gen: always a mute button) --- */
-  #sfxBtn { position: fixed; right: 14px; bottom: 448px; z-index: 6; width: 56px; height: 56px;
+  #sfxBtn { position: fixed; right: 14px; top: 302px; z-index: 6; width: 48px; height: 48px;
     border-radius: 50%; border: 2px solid #fff; background: rgba(52,73,94,0.9); color: #fff;
-    font-family: sans-serif; font-size: 12px; font-weight: bold; cursor: pointer; pointer-events: auto; }
+    font-family: sans-serif; font-size: 11px; font-weight: bold; cursor: pointer; pointer-events: auto; }
   #sfxBtn:active { background: rgba(44,62,80,0.95); }
   #sfxBtn.off { opacity: 0.55; }
   /* --- VFX toggle (rename+VFX: same pattern as the SFX toggle) --- */
-  #vfxBtn { position: fixed; right: 14px; bottom: 518px; z-index: 6; width: 56px; height: 56px;
+  #vfxBtn { position: fixed; right: 14px; top: 246px; z-index: 6; width: 48px; height: 48px;
     border-radius: 50%; border: 2px solid #fff; background: rgba(41,128,185,0.9); color: #fff;
-    font-family: sans-serif; font-size: 12px; font-weight: bold; cursor: pointer; pointer-events: auto; }
+    font-family: sans-serif; font-size: 11px; font-weight: bold; cursor: pointer; pointer-events: auto; }
   #vfxBtn:active { background: rgba(31,97,141,0.95); }
   #vfxBtn.off { opacity: 0.55; }
   /* --- JOB button (M3: Shipper / Bác sĩ / Tài xế) --- */
-  #jobBtn { position: fixed; right: 14px; bottom: 378px; z-index: 6; width: 56px; height: 56px;
+  #jobBtn { position: fixed; right: 14px; top: 358px; z-index: 6; width: 48px; height: 48px;
     border-radius: 50%; border: 2px solid #fff; background: rgba(211,84,0,0.9); color: #fff;
-    font-family: sans-serif; font-size: 12px; font-weight: bold; cursor: pointer; pointer-events: auto; }
+    font-family: sans-serif; font-size: 11px; font-weight: bold; cursor: pointer; pointer-events: auto; }
   #jobBtn:active { background: rgba(160,64,0,0.95); }
+  /* --- RIDE button (VEHICLES FIX 2026-11-25): contextual LÊN XE / XUỐNG XE.
+     Hidden by default; main.js shows it only when the player is riding
+     (XUỐNG XE) or standing near a parked owned vehicle (LÊN XE). Bottom
+     centre, above the hint line, clear of joystick (left) and sprint (right);
+     hidden while chat or any econ panel is open (main.js checks). */
+  #rideBtn { position: fixed; left: 50%; transform: translateX(-50%); bottom: 64px; z-index: 6;
+    display: none; padding: 10px 20px; border-radius: 999px; border: 2px solid #fff;
+    background: rgba(39,174,96,0.95); color: #fff; font-family: sans-serif; font-size: 14px;
+    font-weight: bold; cursor: pointer; white-space: nowrap; }
+  #rideBtn:active { background: rgba(30,132,73,0.95); }
   /* --- job panel buttons --- */
   .jobPickRow { display: flex; gap: 6px; margin: 8px 0; }
   .jobPickRow button { flex: 1; background: #34495e; color: #fff; border: 2px solid transparent;
@@ -147,6 +172,7 @@
 <button id="jobBtn" type="button">NGHỀ</button>
 <button id="sfxBtn" type="button">🔊</button>
 <button id="vfxBtn" type="button">✨</button>
+<button id="rideBtn" type="button">LÊN XE</button>
 <div id="faintPanel">
   <h3>Bạn đã ngất xỉu!</h3>
   <p id="faintText">Đang chờ bác sĩ cứu…</p>

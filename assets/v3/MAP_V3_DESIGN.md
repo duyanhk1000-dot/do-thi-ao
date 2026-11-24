@@ -43,6 +43,16 @@ ring (x > 3200 or y > 3200), which was empty before.
 Scaled ×1.5 from v2.1 `shared/colliders.js`. Sprites: use `assets/v3/<id>.png`
 full image, or `*-roof.png` for a flat-roof-only look (see §6).
 
+> RENDER FIX 2026-11-25 (live bug): the full-scene building images are NOT
+> drawn stretched into these rects any more — each is tight-cropped
+> (`*-tight.png`) and drawn contain-fit, centred, in `src/main.js`
+> (fitRect). The plaza uses `plaza-ground.png` (centre crop of the district
+> image), not the full `map-city-v3.png`. Garden beds are drawn BEFORE the
+> roads. School moved (900,4200) -> (180,4240) and pavilion (3600,600) ->
+> (4200,600): both overlapped a road band. Bicycle added
+> (`prop-bicycle-full.png`, FLUX v2) — it did not exist before; the
+> motorbike prop (`prop-motorbike-full.png`) is reused for ridden/parked bikes.
+
 | id | name | x | y | w | h | sprite |
 |---|---|---|---|---|---|---|
 | bank | Ngân Hàng & ATM | 1425 | 1425 | 450 | 330 | building-bank.png / -roof |
@@ -62,12 +72,12 @@ full image, or `*-roof.png` for a flat-roof-only look (see §6).
 | house9 | Nhà Dân | 2670 | 3840 | 420 | 390 | house-b.png |
 | market | Chợ | 3840 | 3840 | 630 | 450 | building-market.png |
 | police | Đồn Công An (NEW) | 3720 | 600 | 480 | 360 | building-police.png |
-| school | Trường Học (NEW) | 900 | 4200 | 600 | 420 | building-school.png |
-| cafe | Quán Cà Phê (NEW) | 2520 | 4200 | 360 | 300 | building-cafe.png |
-| pavilion | Nhà Vọng Cảnh / Chòi Công Viên (NEW) | 3600 | 600 | 300 | 300 | building-pavilion.png |
-| house10 | Nhà Dân (NEW) | 4200 | 1425 | 390 | 300 | house-a.png |
-| house11 | Nhà Dân (NEW) | 4200 | 2670 | 390 | 300 | house-b.png |
-| house12 | Chung Cư (NEW) | 1500 | 4200 | 480 | 360 | house-c.png |
+| school | Trường Học (NEW) | 180 | 4240 | 600 | 420 | building-school-tight.png |
+| cafe | Quán Cà Phê (NEW) | 2520 | 4230 | 360 | 300 | building-cafe-tight.png |
+| pavilion | Nhà Vọng Cảnh / Chòi Công Viên (NEW) | 4200 | 600 | 300 | 300 | building-pavilion-tight.png |
+| house10 | Nhà Dân (NEW) | 3840 | 4320 | 390 | 300 | house-a.png |
+| house11 | Nhà Dân (NEW) | 4290 | 4320 | 390 | 300 | house-b.png |
+| house12 | Chung Cư (NEW) | 1500 | 4230 | 480 | 360 | house-c.png |
 
 The 7 original SRS v2.1 §3.1 POIs are all kept: Safe Zone / NPC Hướng Dẫn
 (plaza + spawn), Bank/ATM, Warehouse, Shop, Showroom, Motel, Hospital.
@@ -99,7 +109,7 @@ Fence rects (blocking):
 - East: x 3588–3600, y 680–1020 (gap y 600–680, NE corner — same NE entry)
 - Entries: **NE corner (3420–3600, 600–680)** and **SW corner (3000–3080, 940–1020)**.
 - Inside: flower beds, 2 bushes, 1 bench, 1 lamp, pavilion is just outside
-  (3600, 600) — do not fence the pavilion in.
+  (4200, 600) — do not fence the pavilion in.
 
 Fence sprites: `prop-fence-segment-full.png` (straight runs, tile every ~120 px),
 `prop-fence-corner-full.png` (corners), `prop-fence-gate` — the gate image is a
