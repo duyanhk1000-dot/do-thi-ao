@@ -70,6 +70,28 @@
     background: rgba(39,174,96,0.95); color: #fff; font-family: sans-serif; font-size: 14px;
     font-weight: bold; cursor: pointer; white-space: nowrap; }
   #rideBtn:active { background: rgba(30,132,73,0.95); }
+  /* --- TEST MODE (?test=1, 2026-11-25): dev-only panel, hidden unless
+     the URL has ?test=1. Left edge BELOW the HUD panel (ends y168 phone /
+     158 desktop) and the status pill (y174 phone), clear of the zoom
+     buttons (x268+). Collapsed to a small chip by default. --- */
+  #testPanel { position: fixed; left: 10px; top: 210px; z-index: 7; display: none;
+    font-family: sans-serif; max-width: 230px; }
+  #testToggle { display: block; padding: 6px 12px; border-radius: 999px; border: 2px solid #f1c40f;
+    background: rgba(0,0,0,0.75); color: #f1c40f; font-size: 13px; font-weight: bold; cursor: pointer; }
+  #testBody { display: none; margin-top: 6px; padding: 10px; border-radius: 12px;
+    border: 2px solid #f1c40f; background: rgba(0,0,0,0.8); color: #fff; }
+  #testBody.open { display: block; }
+  #testBody .testTitle { font-size: 13px; font-weight: bold; color: #f1c40f; margin-bottom: 8px; }
+  #testBody button.testBtn { display: block; width: 100%; margin: 6px 0; padding: 9px 8px;
+    border: none; border-radius: 8px; background: #f39c12; color: #fff;
+    font-size: 13px; font-weight: bold; cursor: pointer; }
+  #testBody button.testBtn:disabled { opacity: 0.45; cursor: default; }
+  #testBody .testRow { display: flex; gap: 6px; margin: 6px 0; }
+  #testBody .testRow button { flex: 1; padding: 8px 2px; border: 2px solid transparent; border-radius: 8px;
+    background: #34495e; color: #fff; font-size: 12px; font-weight: bold; cursor: pointer; }
+  #testBody .testRow button.active { background: #d35400; border-color: #fff; }
+  #testBody .testRow button:disabled { opacity: 0.45; cursor: default; }
+  #testBody .testNote { font-size: 11px; color: #bbb; line-height: 1.4; margin-top: 8px; }
   /* --- job panel buttons --- */
   .jobPickRow { display: flex; gap: 6px; margin: 8px 0; }
   .jobPickRow button { flex: 1; background: #34495e; color: #fff; border: 2px solid transparent;
@@ -173,6 +195,20 @@
 <button id="sfxBtn" type="button">🔊</button>
 <button id="vfxBtn" type="button">✨</button>
 <button id="rideBtn" type="button">LÊN XE</button>
+<div id="testPanel">
+  <button id="testToggle" type="button">🧪 TEST ▸</button>
+  <div id="testBody">
+    <div class="testTitle">TEST MODE — ?test=1</div>
+    <button id="testMoney" class="testBtn" type="button">+1.000.000đ (tiền test)</button>
+    <div class="testRow">
+      <button type="button" data-speed="1" class="active">Tốc độ x1</button>
+      <button type="button" data-speed="2">Tốc độ x2</button>
+      <button type="button" data-speed="3">Tốc độ x3</button>
+    </div>
+    <button id="testHeal" class="testBtn" type="button">Hồi đầy HP / Đói / Thể lực</button>
+    <div class="testNote" id="testNote">Chỉ hoạt động offline. Tiền cộng vào ví local (localStorage). Tốc độ x2/x3 nhân tốc độ đi/chạy.</div>
+  </div>
+</div>
 <div id="faintPanel">
   <h3>Bạn đã ngất xỉu!</h3>
   <p id="faintText">Đang chờ bác sĩ cứu…</p>

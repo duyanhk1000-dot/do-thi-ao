@@ -93,7 +93,8 @@ class CityRoom extends Room {
     this.economy = new Map(); // sessionId -> {inventory, txLog, processed, granted, atmDay} (M2, in-memory; Supabase RPC replaces in production)
     // M3 jobs (in-memory mirror of the player_jobs table shape, §5.4):
     // sessionId -> {order, cancelCooldownUntil, completedOrderIds, doctor}
-    //   order: {id, slotId, targetX, targetY, poiName, distance, reward,
+    //   order: {id, slotId, targetX, targetY, poiName, pickupId, pickupName,
+    //           pickupX, pickupY, distance, reward,
     //           deadlineAt, idempotencyKey, status, jobType, userId} | null
     //   doctor: {lastRewardedAt, revives: [{victimId, at, rewarded}]}
     this.jobs = new Map();
@@ -101,10 +102,15 @@ class CityRoom extends Room {
     // A slot is locked while its order is active; on release the slot gets a
     // NEW random target, so the next player always gets a different order.
     // maxClients is 8, so the pool can never run dry in P0.
+    // Multi-shop (user 2026-11-25): every slot ALSO has a pickup source
+    // (M3.pickOrderSource: 50% warehouse, 50% a shop) — the player accepts
+    // within 300px of THAT slot's pickup, not always at the warehouse.
     this.orderPool = [];
     for (let i = 0; i < 12; i++) {
-      const t = M3.pickDeliveryPoint();
-      this.orderPool.push({ id: 'ord-' + i, targetX: t.x, targetY: t.y, poiName: t.poiName, lockedBy: null });
+      const src = M3.pickOrderSource();
+      const t = M3.pickDeliveryPoint(null, src.id);
+      this.orderPool.push({ id: 'ord-' + i, targetX: t.x, targetY: t.y, poiName: t.poiName, lockedBy: null,
+        pickupId: src.id, pickupName: src.name, pickupX: src.x, pickupY: src.y });
     }
     this.orderSeq = 0;
     // M4 vehicles (§8.1, in-memory mirror of the assets table shape §5.3):
@@ -217,6 +223,7 @@ class CityRoom extends Room {
       durability: 100, passengerId: '', roomExpiresAt: 0,
       chatBubble: '', chatBubbleUntil: 0, avatar,
       orderStatus: 'none', orderId: '', orderX: 0, orderY: 0, orderDeadline: 0, orderReward: 0,
+      orderPickupX: 0, orderPickupY: 0, orderPickupName: '',
     });
     this.state.players.set(client.sessionId, p);
     this.clientData.set(client.sessionId, {
@@ -1359,21 +1366,28 @@ class CityRoom extends Room {
     if (!order) {
       player.orderStatus = 'none'; player.orderId = '';
       player.orderX = 0; player.orderY = 0; player.orderDeadline = 0; player.orderReward = 0;
+      player.orderPickupX = 0; player.orderPickupY = 0; player.orderPickupName = '';
     } else {
       player.orderStatus = 'accepted'; player.orderId = order.id;
       player.orderX = order.targetX; player.orderY = order.targetY;
       player.orderDeadline = order.deadlineAt; player.orderReward = order.reward;
+      player.orderPickupX = order.pickupX; player.orderPickupY = order.pickupY;
+      player.orderPickupName = order.pickupName;
     }
   }
 
   // Release an order slot back to the pool with a FRESH random target, so
   // the next player always gets a different order (§6.2 ORDER_TAKEN rule).
+  // The pickup source is re-rolled too (50% warehouse / 50% shop), so the
+  // pool's mix stays random instead of freezing on the first 12 sources.
   _releaseOrderSlot(order) {
     if (!order) return;
     const slot = this.orderPool.find((s) => s.id === order.slotId);
     if (!slot) return;
     slot.lockedBy = null;
-    const t = M3.pickDeliveryPoint();
+    const src = M3.pickOrderSource();
+    slot.pickupId = src.id; slot.pickupName = src.name; slot.pickupX = src.x; slot.pickupY = src.y;
+    const t = M3.pickDeliveryPoint(null, src.id);
     slot.targetX = t.x; slot.targetY = t.y; slot.poiName = t.poiName;
   }
 
@@ -1441,11 +1455,16 @@ class CityRoom extends Room {
         });
         return;
       }
-      if (dist(player.x, player.y, M3.WAREHOUSE_POS.x, M3.WAREHOUSE_POS.y) > M3.SHIPPER_RANGE) {
+      // Multi-shop (user 2026-11-25): accept at ANY pickup source — the
+      // nearest source to the player — and take a free slot FOR that source.
+      // Standing nowhere near a source -> TOO_FAR (as before); near a source
+      // whose slots are all taken -> ORDER_TAKEN ("thử cửa hàng khác").
+      const nearSrc = M3.nearestShipperSource(player.x, player.y);
+      if (!nearSrc || nearSrc.distance > M3.SHIPPER_RANGE) {
         client.send('job_result', { type: 'shipper', ok: false, error: 'TOO_FAR' });
         return;
       }
-      const slot = this.orderPool.find((s) => !s.lockedBy);
+      const slot = this.orderPool.find((s) => !s.lockedBy && s.pickupId === nearSrc.id);
       if (!slot) {
         client.send('job_result', { type: 'shipper', ok: false, error: 'ORDER_TAKEN' });
         return;
@@ -1462,6 +1481,7 @@ class CityRoom extends Room {
       const order = {
         id: slot.id + '-' + (++this.orderSeq),
         slotId: slot.id, targetX: slot.targetX, targetY: slot.targetY, poiName: slot.poiName,
+        pickupId: slot.pickupId, pickupName: slot.pickupName, pickupX: slot.pickupX, pickupY: slot.pickupY,
         distance, reward: M3.deliveryRewardFor(distance, M3.isNightWorld(this.state.worldTime), player.vehicleId),
         vehicleId: player.vehicleId || '',
         deadlineAt: now + seconds * 1000, idempotencyKey: randomUUID(),
@@ -1473,11 +1493,12 @@ class CityRoom extends Room {
         type: 'shipper', ok: true, action: 'accept',
         order: {
           id: order.id, targetX: order.targetX, targetY: order.targetY, poiName: order.poiName,
+          pickupId: order.pickupId, pickupName: order.pickupName, pickupX: order.pickupX, pickupY: order.pickupY,
           distance: order.distance, reward: order.reward, deadlineAt: order.deadlineAt,
           secondsLeft: seconds, vehicleId: order.vehicleId,
         },
       });
-      console.log(`[city] ${player.name} accepted ${order.id} -> (${order.targetX},${order.targetY}) ${distance}px ${seconds}s reward ${order.reward}đ`);
+      console.log(`[city] ${player.name} accepted ${order.id} @${order.pickupName} -> (${order.targetX},${order.targetY}) ${distance}px ${seconds}s reward ${order.reward}đ`);
       return;
     }
 

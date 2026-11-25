@@ -10,6 +10,10 @@
   // when Colliders failed to load; they must match it exactly.
   var MAP_W = 4800, MAP_H = 4800;
   var WALK_SPEED = 180, SPRINT_SPEED = 300;
+  // TEST MODE (?test=1, 2026-11-25): free money + speed multiplier + full
+  // heal, OFF by default. testSpeedMult multiplies walk/sprint OFFLINE
+  // only — online the server is authoritative (see initTestMode).
+  var testMode = false, testSpeedMult = 1;
   var DAY_MINUTES = 1440; // 24 real minutes = 24 game hours -> 1 game min / 1 real sec
 
   // ---------- seeded random (stable map every load) ----------
@@ -244,6 +248,7 @@
   var player, playerGfx;
   var npcs = [], tutorialNpc = null;
   var animals = []; // Map v2 §7: dogs + cats, visual-only wanderers (no gameplay)
+  var traffic = []; // 2026-11-25: ambient moving cars/motorbikes on the roads (visual only)
   var cullables = []; // {obj, x, y, w, h}
   var lampGlows = [];
   var keys = {};
@@ -453,7 +458,16 @@
     spr.position.set(x, y);
     world.addChild(spr);
     var tgt = randomOpenPoint();
-    var a = { kind: kind, container: spr, x: x, y: y, targetX: tgt.x, targetY: tgt.y, speed: speed, pauseUntil: 0 };
+    // DOG-STREAK FIX (2026-11-25): PixiJS derives a Sprite's rendered
+    // width from scale.x (width = |scale.x| * texture.width) — and setting
+    // .width only sets scale.x = w / texture.width ONCE. The old flip code
+    // below did `container.scale.x = -1`, which reset the dog's rendered
+    // width to the full texture width (301px) while the height stayed ~36px:
+    // a flat tan smear with the magenta shadow fringe along its bottom edge
+    // (exactly the user's 05:52 + 08:22 screenshots, ~80% of a 390px screen
+    // at zoom 1.0x). Keep the base scale and flip by SIGN only, so the
+    // rendered size never changes. Same rule for every width-sized sprite.
+    var a = { kind: kind, container: spr, baseScaleX: spr.scale.x, x: x, y: y, targetX: tgt.x, targetY: tgt.y, speed: speed, pauseUntil: 0 };
     spr.userData = a; // lets updateCulling follow the animal (same as NPCs)
     animals.push(a);
     cullables.push({ obj: spr, x: x - 20, y: y - 20, w: 40, h: 40 });
@@ -481,9 +495,75 @@
       }
       a.x = nx; a.y = ny;
       a.container.position.set(a.x, a.y);
-      if (dx < -0.1) a.container.scale.x = -1;
-      else if (dx > 0.1) a.container.scale.x = 1;
+      a.container.zIndex = a.y; // y-sorted with the player (traffic)
+      // Flip by sign of the BASE scale (see spawnAnimal): scale.x = -1
+      // would blow the sprite up to its full texture width (dog streak).
+      if (dx < -0.1) a.container.scale.x = -Math.abs(a.baseScaleX);
+      else if (dx > 0.1) a.container.scale.x = Math.abs(a.baseScaleX);
     });
+  }
+  // ---------- Traffic (2026-11-25): ambient moving vehicles on the roads.
+  // Client-side, visual only — like the animals: no collision with the
+  // player, the server never sees them. 8 vehicles (4 cars + 4 motorbikes)
+  // drive along the road bands (shared/colliders.js ROAD_BANDS at x/y
+  // 1140/2340/3540, width 180) in both directions at 200-300 px/s, two
+  // lanes per band (offsets +45 / +135), wrapping at the map edges.
+  // Orientation is by ROTATION only — never a scale.x flip (the dog-streak
+  // bug: flipping a width-sized sprite resets its width to texture width).
+  // Car texture is wide (741x360, side view), motorbike texture is tall
+  // (204x360, top-down), so their base rotations differ per axis.
+  var TRAFFIC_COUNT = 8;
+  var TRAFFIC_SPEED_MIN = 200, TRAFFIC_SPEED_MAX = 300;
+  var TRAFFIC_WRAP = 120; // wrap margin beyond the map edge
+  function spawnTraffic() {
+    if (!world) return;
+    var kinds = ['car', 'motorbike', 'car', 'motorbike', 'car', 'motorbike', 'car', 'motorbike'];
+    for (var i = 0; i < TRAFFIC_COUNT; i++) {
+      var kind = kinds[i % kinds.length];
+      var tex = TEX[kind];
+      if (!tex) continue;
+      var vertical = (i % 2 === 0); // alternate vertical / horizontal roads
+      var band = ROAD_BANDS[i % ROAD_BANDS.length];
+      var dir = (i % 3 === 0) ? -1 : 1; // both directions
+      // Right-hand traffic: vertical road, driving south (+y) keeps right
+      // (west, smaller x = lane +45); driving north keeps right (east,
+      // +135). Horizontal road: driving east (+x) keeps right (south,
+      // +135); driving west keeps right (north, +45).
+      var lane = vertical ? (dir > 0 ? 45 : 135) : (dir > 0 ? 135 : 45);
+      var speed = TRAFFIC_SPEED_MIN + Math.random() * (TRAFFIC_SPEED_MAX - TRAFFIC_SPEED_MIN);
+      var w = kind === 'car' ? 90 : 34; // same widths as the parked props
+      var spr = new PIXI.Sprite(tex);
+      spr.anchor.set(0.5, 0.5);
+      spr.width = w;
+      spr.height = w * tex.height / tex.width;
+      if (kind === 'car') spr.rotation = vertical ? (dir > 0 ? Math.PI / 2 : -Math.PI / 2) : (dir > 0 ? 0 : Math.PI);
+      else spr.rotation = vertical ? (dir > 0 ? 0 : Math.PI) : (dir > 0 ? Math.PI / 2 : -Math.PI / 2);
+      var x, y;
+      if (vertical) { x = band + lane; y = Math.random() * MAP_H; }
+      else { x = Math.random() * MAP_W; y = band + lane; }
+      spr.position.set(x, y);
+      world.addChild(spr);
+      var t = { kind: kind, spr: spr, vertical: vertical, band: band, lane: lane, dir: dir, speed: speed, x: x, y: y };
+      spr.userData = t; // lets updateCulling follow the vehicle (same as NPCs)
+      traffic.push(t);
+      cullables.push({ obj: spr, x: x - 45, y: y - 45, w: 90, h: 90 });
+    }
+  }
+  function updateTraffic(dt) {
+    for (var i = 0; i < traffic.length; i++) {
+      var t = traffic[i];
+      if (t.vertical) {
+        t.y += t.dir * t.speed * dt;
+        if (t.y > MAP_H + TRAFFIC_WRAP) t.y = -TRAFFIC_WRAP;
+        else if (t.y < -TRAFFIC_WRAP) t.y = MAP_H + TRAFFIC_WRAP;
+      } else {
+        t.x += t.dir * t.speed * dt;
+        if (t.x > MAP_W + TRAFFIC_WRAP) t.x = -TRAFFIC_WRAP;
+        else if (t.x < -TRAFFIC_WRAP) t.x = MAP_W + TRAFFIC_WRAP;
+      }
+      t.spr.position.set(t.x, t.y);
+      t.spr.zIndex = t.y; // y-sorted with the player
+    }
   }
   // Full-body texture for the in-world character (transparent *-full.png).
   function fullTexFor(avatarKey) {
@@ -506,6 +586,13 @@
 
   function buildWorld() {
     world = new PIXI.Container();
+    // TRAFFIC (2026-11-25): y-sort the moving things (player, NPCs,
+    // animals, traffic, remote players) by their y so a car south of the
+    // player draws above them and one north draws below. Static props keep
+    // zIndex 0 (below all movers, as today — the player was already drawn
+    // above buildings). UI world children (arrow, radial, bubble, hint,
+    // guide label) and the VFX layer are pinned to 99999/100000.
+    world.sortableChildren = true;
     app.stage.addChild(world);
 
     // ground: grass
@@ -788,9 +875,13 @@
       // the 5 on-foot personas, index-aligned with WALKER_FULL) so
       // "Nói chuyện" gets a persona line in the matching voice, online & offline.
       var personaId = WALKER_PERSONAS[n % WALKER_PERSONAS.length];
+      // Keep the inner face container: npc.userData is replaced by obj
+      // below, so makeFullBody's userData.face would be lost — and the
+      // flip code needs the face (never the width-sized sprite itself).
+      var npcFace = (npc.userData && npc.userData.face) || npc;
       var obj = {
         id: 'npc-walker-' + n, personaId: personaId, lastTalkLine: null,
-        container: npc, x: sp.x, y: sp.y, targetX: tgt.x, targetY: tgt.y,
+        container: npc, face: npcFace, x: sp.x, y: sp.y, targetX: tgt.x, targetY: tgt.y,
         speed: 90, name: NPC_NAMES[n % NPC_NAMES.length],
         color: NPC_COLORS[n % NPC_COLORS.length], isTutorial: false
       };
@@ -806,6 +897,8 @@
     var animalSpawns = (typeof Colliders !== 'undefined' && Colliders.ANIMALS) ? Colliders.ANIMALS : { dogs: [], cats: [] };
     animalSpawns.dogs.forEach(function (s) { spawnAnimal('dog', s.x, s.y, 60, 30); });
     animalSpawns.cats.forEach(function (s) { spawnAnimal('cat', s.x, s.y, 40, 22); });
+    // Traffic (2026-11-25): ambient cars + motorbikes on the road bands.
+    spawnTraffic();
 
     // tutorial NPC (fixed at spawn) — Map v2: v3 taxiFull is Chú Ba STANDING
     // holding a helmet (verified by viewing the sprite), so the Guide reads
@@ -821,17 +914,20 @@
       speed: 0, name: 'NPC Hướng Dẫn', color: 0x27ae60, isTutorial: true
     };
     tutorialNpc.userData = tutObj;
+    tutorialNpc.zIndex = 2520; // static guide: y-sorted like the movers
     world.addChild(tutorialNpc);
     npcs.push(tutObj);
     cullables.push({ obj: tutorialNpc, x: 2380, y: 2490, w: 40, h: 60 });
     var tutLabel = text('NPC Hướng Dẫn', 18, 0xffff00, true);
     tutLabel.anchor.set(0.5, 0.5); tutLabel.position.set(2400, 2478);
+    tutLabel.zIndex = 99999; // UI label: always above movers
     world.addChild(tutLabel);
     cullables.push({ obj: tutLabel, x: 2300, y: 2460, w: 200, h: 36 });
 
     // player (M2: full-body hero sprite + shadow; M0 code-drawn person as fallback)
     player = makeFullBody(TEX.heroFull, playerState.name);
     player.position.set(playerState.x, playerState.y);
+    player.zIndex = playerState.y; // y-sorted with traffic / NPCs / animals
     world.addChild(player);
     playerGfx = player;
     // VEHICLES FIX (2026-11-25): the ridden vehicle sprite, a child of the
@@ -846,6 +942,7 @@
     // M3 (§6.2): delivery arrow — a world-space line + triangle from the
     // player toward the active order's target, redrawn every frame.
     orderArrow = new PIXI.Graphics();
+    orderArrow.zIndex = 99999; // UI: always above movers
     orderArrow.visible = false;
     world.addChild(orderArrow);
 
@@ -857,6 +954,7 @@
   function buildRadialMenu() {
     radialMenu = new PIXI.Container();
     radialMenu.visible = false;
+    radialMenu.zIndex = 99999; // UI: always above movers
     world.addChild(radialMenu);
     var defs = [
       { label: 'Nói chuyện', action: 'talk' },
@@ -896,12 +994,14 @@
     talkHint.style.stroke = { color: 0x000000, width: 5 };
     talkHint.eventMode = 'none';
     talkHint.visible = false;
+    talkHint.zIndex = 99999; // UI: always above movers
     world.addChild(talkHint);
   }
 
   function buildBubble() {
     bubble = new PIXI.Container();
     bubble.visible = false;
+    bubble.zIndex = 99999; // UI: always above movers
     var bg = new PIXI.Graphics();
     // M2: smaller bubble (200x48, was 260x56) — at zoom 1.6x the old bubble
     // was 416px wide on a 390px screen and overflowed the frame.
@@ -1872,6 +1972,10 @@
     else speed = WALK_SPEED;
     if (typeof M3 !== 'undefined' && M3.speedWithHunger) speed = M3.speedWithHunger(speed, playerState.hunger);
     else if (playerState.hunger < 20) speed *= 0.7;
+    // TEST MODE (?test=1): speed multiplier, OFFLINE only. Online the
+    // server enforces its own speed and would snap the player back, so
+    // the multiplier is never applied there (the panel says so).
+    if (testMode && netMode !== 'online' && testSpeedMult !== 1) speed = Math.round(speed * testSpeedMult);
     var input = { dx: ix, dy: iy, sprint: sprinting };
     lastInput = { dx: ix, dy: iy, sprint: sprinting, len: len };
 
@@ -1908,6 +2012,7 @@
     }
 
     player.position.set(playerState.x, playerState.y);
+    player.zIndex = playerState.y; // y-sorted with traffic / NPCs / animals
     // flip/bob the badge face (not the whole container — the name label
     // must not mirror); for the M0 fallback person the face IS the container.
     var face2 = (player.userData && player.userData.face) || player;
@@ -2038,8 +2143,15 @@
           var k = Math.min(1, dt * 10);
           n.x += tdx * k; n.y += tdy * k;
           n.container.position.set(n.x, n.y);
-          if (tdx < -0.5) n.container.scale.x = -1;
-          else if (tdx > 0.5) n.container.scale.x = 1;
+          n.container.zIndex = n.y; // y-sorted with the player / traffic
+          // FLIP AUDIT (2026-11-25, dog streak): flip the inner FACE
+          // container (a plain Container — mirroring it cannot change any
+          // size), never the sprite itself and never with scale.x = +/-1 on
+          // a width-sized sprite. Same rule as the player (updatePlayer)
+          // and remote players (updateRemotePlayers, r.face).
+          var faceO = n.face || n.container;
+          if (tdx < -0.5) faceO.scale.x = -1;
+          else if (tdx > 0.5) faceO.scale.x = 1;
         }
         return;
       }
@@ -2057,8 +2169,12 @@
       if (blocked(n.x, ny, 14)) { var p3 = randomOpenPoint(); n.targetX = p3.x; n.targetY = p3.y; return; }
       n.x = nx; n.y = ny;
       n.container.position.set(n.x, n.y);
-      if (stepX < -0.1) n.container.scale.x = -1;
-      else if (stepX > 0.1) n.container.scale.x = 1;
+      n.container.zIndex = n.y; // y-sorted with the player / traffic
+      // Flip the inner face container, not the outer container (see the
+      // online branch above — same dog-streak audit).
+      var faceW = n.face || n.container;
+      if (stepX < -0.1) faceW.scale.x = -1;
+      else if (stepX > 0.1) faceW.scale.x = 1;
     });
   }
 
@@ -2222,6 +2338,7 @@
       r.x = r.rx; r.y = r.ry;
       if (r.container.userData) { r.container.userData.x = r.rx; r.container.userData.y = r.ry; }
       r.container.position.set(r.rx, r.ry);
+      r.container.zIndex = r.ry; // y-sorted with the player / traffic
     });
   }
 
@@ -2454,6 +2571,81 @@
   }
 
   // ---------- M1: net integration ----------
+  // ---------- TEST MODE (?test=1, 2026-11-25) ----------
+  // Dev-only panel (#testPanel in index.html): free money, speed x2/x3,
+  // full heal. OFF unless the URL has ?test=1 — no test UI otherwise.
+  // Money + heal are OFFLINE-ONLY by design: online the server owns the
+  // wallet and the stats, and there is no test endpoint on the server
+  // (adding one would be a cheat vector). Speed is offline-only for the
+  // same reason (the server enforces its own speed). The panel states
+  // these limits in its note line; syncTestPanel re-checks netMode twice
+  // a second (called from the FPS block) so the buttons follow a
+  // connect/disconnect without a reload.
+  function syncTestPanel() {
+    var panel = document.getElementById('testPanel');
+    if (!panel || !testMode) return;
+    var online = netMode === 'online';
+    var moneyBtn = document.getElementById('testMoney');
+    var healBtn = document.getElementById('testHeal');
+    var note = document.getElementById('testNote');
+    if (moneyBtn) moneyBtn.disabled = online;
+    if (healBtn) healBtn.disabled = online;
+    var btns = panel.querySelectorAll('[data-speed]');
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].disabled = online;
+      btns[i].classList.toggle('active', parseInt(btns[i].getAttribute('data-speed'), 10) === testSpeedMult);
+    }
+    if (note) note.textContent = online
+      ? 'Đang ONLINE: tiền + hồi máu bị khóa (do server quản lý), tốc độ do server quyết định — các nút test không có tác dụng.'
+      : 'Chỉ hoạt động offline. Tiền cộng vào ví local (localStorage). Tốc độ x2/x3 nhân tốc độ đi/chạy.';
+  }
+  function initTestMode() {
+    try {
+      var q = new URLSearchParams(window.location.search || '');
+      testMode = q.get('test') === '1';
+    } catch (e) { testMode = false; }
+    var panel = document.getElementById('testPanel');
+    if (!panel) return;
+    if (!testMode) { panel.style.display = 'none'; return; }
+    panel.style.display = 'block';
+    var toggle = document.getElementById('testToggle');
+    var body = document.getElementById('testBody');
+    if (toggle && body) toggle.addEventListener('click', function () {
+      var open = body.classList.toggle('open');
+      toggle.textContent = open ? '🧪 TEST ▾' : '🧪 TEST ▸';
+    });
+    var moneyBtn = document.getElementById('testMoney');
+    if (moneyBtn) moneyBtn.addEventListener('click', function () {
+      if (netMode === 'online') return; // server owns the wallet online
+      if (typeof Economy !== 'undefined' && Economy.grant) {
+        Economy.grant(1000000, 'test_grant', { source: 'test_mode' });
+        appendChatLog('', '', 'TEST: +1.000.000đ vào ví (test_grant).', true);
+        sfx('coin');
+      }
+    });
+    var healBtn = document.getElementById('testHeal');
+    if (healBtn) healBtn.addEventListener('click', function () {
+      if (netMode === 'online') return; // server owns the stats online
+      playerState.hp = 100; playerState.hunger = 100; playerState.stamina = 100;
+      if (playerState.isFainted) {
+        playerState.isFainted = false; playerState.anim = 'idle'; faintInfo = null;
+        vfx('unfaint', player);
+      }
+      appendChatLog('', '', 'TEST: HP/Đói/Thể lực đã hồi đầy 100.', true);
+      sfx('heal');
+    });
+    var btns = panel.querySelectorAll('[data-speed]');
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].addEventListener('click', function () {
+        if (netMode === 'online') return;
+        testSpeedMult = parseInt(this.getAttribute('data-speed'), 10) || 1;
+        appendChatLog('', '', 'TEST: tốc độ di chuyển x' + testSpeedMult + ' (offline).', true);
+        syncTestPanel();
+      });
+    }
+    syncTestPanel();
+  }
+
   function setNetStatus(t) {
     if (chatEls.status) chatEls.status.textContent = t;
   }
@@ -2499,6 +2691,7 @@
       playerState.order = {
         status: 'accepted', id: p.orderId, targetX: p.orderX, targetY: p.orderY,
         deadlineAt: p.orderDeadline, reward: p.orderReward,
+        pickupName: p.orderPickupName || '', pickupX: p.orderPickupX || 0, pickupY: p.orderPickupY || 0,
       };
     } else playerState.order = null;
     // M3 (§3.2.3): track when fainting started — the faint panel counts
@@ -2596,6 +2789,7 @@
       taxiSprites[id] = spr;
     }
     spr.position.set(x, y);
+    spr.zIndex = y; // y-sorted with the player / traffic
   }
   function removeTaxiCustomerSprite(id) {
     var spr = taxiSprites[id];
@@ -2702,7 +2896,8 @@
             if (typeof msg.cash === 'number') playerState.cash = msg.cash;
             if (typeof msg.bank === 'number') playerState.bank = msg.bank;
           } else if (msg.ok && msg.action === 'accept' && msg.order) {
-            appendChatLog('', '', 'Đã nhận đơn giao tới ' + (msg.order.poiName || 'điểm giao') +
+            appendChatLog('', '', 'Đã nhận đơn: lấy hàng ở ' + (msg.order.pickupName || 'Kho Hàng Trung Tâm') +
+              ', giao tới ' + (msg.order.poiName || 'điểm giao') +
               ' — hạn ' + msg.order.secondsLeft + 's, thưởng ' +
               Math.floor(msg.order.reward).toLocaleString('vi-VN') + 'đ. Mũi tên vàng chỉ đường!', true);
             sfx('accept');
@@ -2713,7 +2908,7 @@
             vfx('clearPath');
           } else if (!msg.ok) {
             var errMsg = msg.error === 'ALREADY_PROCESSED' ? 'Đơn này đã giao xong rồi (chống trùng).'
-              : msg.error === 'TOO_FAR' ? 'Chưa tới nơi — tới Kho Hàng để nhận đơn, tới đúng điểm giao (trong 80px) để giao hàng.'
+              : msg.error === 'TOO_FAR' ? 'Chưa tới nơi — tới Kho Hàng Trung Tâm hoặc cửa hàng (Cửa Hàng Tiện Lợi, Nhà Trọ, Chợ, Quán Cà Phê) để nhận đơn, tới đúng điểm giao (trong 80px) để giao hàng.'
               : msg.error === 'NOT_SHIPPER' ? 'Bạn chưa chọn nghề Shipper — bấm nút NGHỀ trước.'
               : msg.error === 'ALREADY_HAVE_ORDER' ? 'Bạn đang có 1 đơn rồi.'
               : msg.error === 'COOLDOWN' ? 'Vừa hủy đơn, chờ ' + (msg.retryAfterSec || 10) + 's nữa.'
@@ -3039,6 +3234,9 @@
         });
       }
     } catch (e) { console.warn('[jobs] init failed:', e); }
+    // TEST MODE (?test=1): dev panel for free money / speed / heal.
+    // Hidden entirely unless the URL has ?test=1.
+    try { initTestMode(); } catch (e) { console.warn('[test] init failed:', e); }
     faintPanelEl = document.getElementById('faintPanel');
     faintTextEl = document.getElementById('faintText');
     hospitalBtnEl = document.getElementById('hospitalBtn');
@@ -3174,6 +3372,7 @@
         fpsValue = Math.round(fpsCount / (fpsTimer / 1000));
         fpsCount = 0; fpsTimer = 0;
         if (hudRefs.fpsT) hudRefs.fpsT.text = fpsValue + ' FPS';
+        if (testMode) syncTestPanel(); // TEST MODE: buttons follow online/offline
       }
       // clock: 1 game minute per real second (offline only — online the
       // server worldTime is authoritative, via onWorldTime). A wrap past
@@ -3192,6 +3391,7 @@
         updatePlayer(dt);
         updateNPCs(dt);
         updateAnimals(dt);
+        updateTraffic(dt); // ambient cars/motorbikes on the roads
         updateRemotePlayers(dt);
         updateTaxiCustomerSprites();
         updateTalkHint(); // TAP-TO-TALK: floating 💬 above the nearest in-range NPC/player

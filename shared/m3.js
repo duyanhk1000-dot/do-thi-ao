@@ -113,6 +113,43 @@
     { id: 'motel',    name: 'Khu Nhà Trọ',            x: 2910, y: 2865 }
   ];
 
+  // ---- Shipper pickup sources (user decision 2026-11-25) ----
+  // Orders are picked up from MANY places, not just the warehouse: 50% of
+  // orders from Kho Hàng Trung Tâm (as before), 50% from shops — food /
+  // convenience / motel / other shops. Coords are Map v2 building centres
+  // (shared/colliders.js §3); the player accepts within SHIPPER_RANGE
+  // (300px) of the source, exactly like the warehouse before. The
+  // warehouse entry MUST stay index 0 (pickOrderSource returns it for the
+  // 50% branch); WAREHOUSE_POS above is the same point.
+  var SHIPPER_SOURCES = [
+    { id: 'warehouse', name: 'Kho Hàng Trung Tâm',     x: 4155, y: 2910 },
+    { id: 'shop',      name: 'Cửa Hàng Tiện Lợi 24/7', x: 2895, y: 1590 },
+    { id: 'motel',     name: 'Khu Nhà Trọ',            x: 2910, y: 2865 },
+    { id: 'market',    name: 'Chợ',                    x: 4155, y: 4065 },
+    { id: 'cafe',      name: 'Quán Cà Phê',            x: 2700, y: 4380 }
+  ];
+  // Pick an order's pickup source: 50% warehouse, 50% one of the shops
+  // (uniform among the 4 shops). randFn defaults to Math.random; pass a
+  // seeded function in tests for determinism.
+  function pickOrderSource(randFn) {
+    var rnd = randFn || Math.random;
+    if (rnd() < 0.5) return SHIPPER_SOURCES[0];
+    var shops = SHIPPER_SOURCES.slice(1);
+    return shops[Math.floor(rnd() * shops.length)];
+  }
+  // Nearest pickup source to (x, y), with its distance — the accept check
+  // is "within SHIPPER_RANGE of the NEAREST source" (any source, not just
+  // the warehouse). Returns {id, name, x, y, distance}.
+  function nearestShipperSource(x, y) {
+    var best = null, bestD = Infinity;
+    for (var i = 0; i < SHIPPER_SOURCES.length; i++) {
+      var s = SHIPPER_SOURCES[i];
+      var d = dist(x, y, s.x, s.y);
+      if (d < bestD) { bestD = d; best = s; }
+    }
+    return { id: best.id, name: best.name, x: best.x, y: best.y, distance: bestD };
+  }
+
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
   function dist(ax, ay, bx, by) { return Math.hypot(ax - bx, ay - by); }
 
@@ -155,12 +192,15 @@
 
   // §6.2: random delivery point near a POI (open ground, not inside a
   // building, not on a road). randFn defaults to Math.random; pass a seeded
-  // function in tests for determinism.
-  function pickDeliveryPoint(randFn) {
+  // function in tests for determinism. excludePoiId (optional) skips one
+  // POI — used for shipper orders so the delivery is never the same shop
+  // the order was picked up from.
+  function pickDeliveryPoint(randFn, excludePoiId) {
     var rnd = randFn || Math.random;
     if (Colliders) {
       for (var i = 0; i < 40; i++) {
         var poi = DELIVERY_POIS[Math.floor(rnd() * DELIVERY_POIS.length)];
+        if (excludePoiId && poi.id === excludePoiId) continue;
         var a = rnd() * Math.PI * 2, r = 40 + rnd() * 220;
         var x = poi.x + Math.cos(a) * r, y = poi.y + Math.sin(a) * r;
         if (Colliders.isOpenPoint(x, y)) return { x: Math.round(x), y: Math.round(y), poiId: poi.id, poiName: poi.name };
@@ -170,6 +210,7 @@
     }
     // No Colliders (should not happen in the game): fall back to a POI point.
     var poi2 = DELIVERY_POIS[Math.floor(rnd() * DELIVERY_POIS.length)];
+    if (excludePoiId && poi2.id === excludePoiId) poi2 = DELIVERY_POIS[(DELIVERY_POIS.indexOf(poi2) + 1) % DELIVERY_POIS.length];
     return { x: poi2.x, y: poi2.y, poiId: poi2.id, poiName: poi2.name };
   }
 
@@ -328,7 +369,9 @@
     // M4 doctor mini-game (proposal)
     REVIVE_BASE_HP: REVIVE_BASE_HP, REVIVE_MINIGAME_BONUS_HP: REVIVE_MINIGAME_BONUS_HP,
     REVIVE_MINIGAME_PASS_PCT: REVIVE_MINIGAME_PASS_PCT,
-    DELIVERY_POIS: DELIVERY_POIS, JOB_LABELS: JOB_LABELS, JOBS: JOBS,
+    DELIVERY_POIS: DELIVERY_POIS, SHIPPER_SOURCES: SHIPPER_SOURCES,
+    pickOrderSource: pickOrderSource, nearestShipperSource: nearestShipperSource,
+    JOB_LABELS: JOB_LABELS, JOBS: JOBS,
     clamp: clamp, dist: dist,
     deliverySeconds: deliverySeconds, deliveryReward: deliveryReward,
     deliveryRewardFor: deliveryRewardFor,

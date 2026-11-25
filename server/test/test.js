@@ -306,6 +306,93 @@ async function main() {
         dupOk && pA2 && pA2.cash === cashAfterDeliver, `cash=${pA2 ? pA2.cash : '?'}`);
     }
 
+    // 7b. Multi-shop Shipper (user 2026-11-25): 50% warehouse / 50% shops.
+    // Pure M3 first (seeded, deterministic), then the live protocol.
+    const seeded = (() => { let s = 12345; return () => { s = (s * 1103515245 + 12345) % 2147483648; return s / 2147483648; }; })();
+    const srcCounts = {};
+    for (let i = 0; i < 200; i++) {
+      const src = M3.pickOrderSource(seeded);
+      srcCounts[src.id] = (srcCounts[src.id] || 0) + 1;
+    }
+    const whCount = srcCounts.warehouse || 0;
+    const shopCounts = ['shop', 'motel', 'market', 'cafe'].map((id) => srcCounts[id] || 0);
+    check('M3 pickOrderSource: ~50% warehouse over 200 seeded picks',
+      whCount >= 80 && whCount <= 120, `warehouse=${whCount}/200`);
+    check('M3 pickOrderSource: every shop appears in 200 seeded picks',
+      shopCounts.every((c) => c >= 10), `shop/motel/market/cafe=${shopCounts.join('/')}`);
+    check('M3 pickOrderSource: all 5 sources are real SHIPPER_SOURCES',
+      M3.SHIPPER_SOURCES.length === 5 && M3.SHIPPER_SOURCES[0].id === 'warehouse',
+      M3.SHIPPER_SOURCES.map((s) => s.id).join(','));
+    // Delivery is never the pickup shop itself.
+    let excludedOk = true;
+    for (let i = 0; i < 50; i++) {
+      const dp = M3.pickDeliveryPoint(seeded, 'shop');
+      if (dp.poiId === 'shop') { excludedOk = false; break; }
+    }
+    check('M3 pickDeliveryPoint excludes the pickup shop (50 picks)', excludedOk);
+    // nearestShipperSource: near the shop -> shop; at the plaza -> motel
+    // (564px away, still the nearest) but outside the 300px accept range.
+    const nearShop = M3.nearestShipperSource(2895, 1850);
+    const atPlaza = M3.nearestShipperSource(2400, 2625);
+    check('M3 nearestShipperSource near the shop returns shop (~260px)',
+      nearShop.id === 'shop' && Math.round(nearShop.distance) === 260,
+      `${nearShop.id} ${Math.round(nearShop.distance)}px`);
+    check('M3 nearestShipperSource at the plaza is motel, 564px (TOO_FAR range)',
+      atPlaza.id === 'motel' && Math.round(atPlaza.distance) === 564 && atPlaza.distance > M3.SHIPPER_RANGE,
+      `${atPlaza.id} ${Math.round(atPlaza.distance)}px`);
+    // Live: accept at a SHOP works. Try each shop spot in turn (a slot for
+    // that shop must be free — ORDER_TAKEN just means try the next shop);
+    // the accepted order's pickup must be the shop the player stands at.
+    const shopSpots = [
+      { id: 'shop', x: 2895, y: 1850 }, { id: 'motel', x: 2910, y: 3120 },
+      { id: 'market', x: 4155, y: 4320 }, { id: 'cafe', x: 2700, y: 4630 },
+    ];
+    let shopOrder = null, shopSpot = null;
+    for (const spot of shopSpots) {
+      await testSet(roomA, { x: spot.x, y: spot.y });
+      jobResultsA.length = 0;
+      roomA.send('shipper', { action: 'accept' });
+      const ok = await waitForMsg(jobResultsA,
+        (m) => m.type === 'shipper' && m.ok && m.action === 'accept' && m.order, 3000);
+      const msg = jobResultsA.find((m) => m.type === 'shipper' && m.ok && m.action === 'accept');
+      if (ok && msg) { shopOrder = msg.order; shopSpot = spot; break; }
+      // ORDER_TAKEN (no free slot for this shop) -> try the next shop.
+      const err = jobResultsA.find((m) => m.type === 'shipper' && !m.ok);
+      if (err && err.error !== 'ORDER_TAKEN') break; // TOO_FAR etc. = real failure
+    }
+    check('M3 shipper accept at a shop works (pickup = that shop)',
+      !!shopOrder && !!shopSpot && shopOrder.pickupId === shopSpot.id,
+      shopOrder ? `pickup=${shopOrder.pickupId} @${shopOrder.pickupName}` : 'no shop order accepted');
+    if (shopOrder) {
+      const pAx = statePlayer(roomA, roomA.sessionId);
+      const pickupDist = Math.round(Math.hypot(shopOrder.pickupX - (pAx ? pAx.x : 0), shopOrder.pickupY - (pAx ? pAx.y : 0)));
+      check('M3 shop order pickup is within 300px of the player at accept',
+        pickupDist <= M3.SHIPPER_RANGE, `pickup ${pickupDist}px away`);
+      // The Colyseus state mirrors the pickup (client order card reads it).
+      const mirrored = await waitFor(() => {
+        const p = statePlayer(roomB, roomA.sessionId);
+        return p && p.orderPickupName === shopOrder.pickupName && p.orderStatus === 'accepted';
+      }, 3000);
+      check('M3 order pickup mirrored in player state (orderPickupName)',
+        mirrored, `state pickup=${(statePlayer(roomB, roomA.sessionId) || {}).orderPickupName}`);
+      // Deliver the shop order (teleport to target, complete) so later
+      // tests start clean — no cancel cooldown for the bicycle test below.
+      await testSet(roomA, { x: shopOrder.targetX, y: shopOrder.targetY });
+      jobResultsA.length = 0;
+      roomA.send('shipper', { action: 'complete', orderId: shopOrder.id });
+      const shopDelivered = await waitForMsg(jobResultsA,
+        (m) => m.type === 'shipper' && m.ok && m.action === 'complete');
+      check('M3 shop order delivers and pays like a warehouse order', shopDelivered);
+    }
+    // Live: pickup at the wrong place fails — the plaza is >300px from
+    // every source (nearest is the motel, 564px away).
+    await testSet(roomA, { x: 2400, y: 2625 });
+    jobResultsA.length = 0;
+    roomA.send('shipper', { action: 'accept' });
+    const tooFarOk = await waitForMsg(jobResultsA,
+      (m) => m.type === 'shipper' && !m.ok && m.error === 'TOO_FAR', 3000);
+    check('M3 shipper accept far from every source -> TOO_FAR', tooFarOk);
+
     // 8. NPC talk (§10.2): guide -> tutorial quest; walker -> persona line.
     // Teleport A next to the guide (2400,2520), 110px away.
     await testSet(roomA, { x: 2400, y: 2630 });

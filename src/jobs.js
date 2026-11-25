@@ -4,7 +4,8 @@
    Owns the #jobPanel DOM (job buttons + Shipper order controls + M4 Taxi
    and vehicle controls) and the OFFLINE Shipper/Taxi engines — the same
    rules/numbers as the server (shared/m3.js): 1 order at a time, accept at
-   the warehouse only, deadline = distance/vehicle-speed + 30 s (LOCKED at
+   any pickup source (50% warehouse / 50% shops: Cửa Hàng Tiện Lợi, Nhà Trọ,
+   Chợ, Quán Cà Phê), deadline = distance/vehicle-speed + 30 s (LOCKED at
    accept), server-calculated reward (here: the local engine, since there
    is no server offline; pay x1.00 foot / x1.30 bicycle / x2.00 motorbike —
    LOCKED 2026-11-25 01:02), deliver within 80 px, cancel = 10 s cooldown,
@@ -104,10 +105,14 @@
     if (now < localCancelCooldownUntil) {
       return { ok: false, error: 'COOLDOWN', retryAfterSec: Math.ceil((localCancelCooldownUntil - now) / 1000) };
     }
-    if (dist(st.x, st.y, M3.WAREHOUSE_POS.x, M3.WAREHOUSE_POS.y) > M3.SHIPPER_RANGE) {
+    // Multi-shop (user 2026-11-25): accept at ANY pickup source (50%
+    // warehouse / 50% shops). The player must stand within SHIPPER_RANGE
+    // of the nearest source; the order's pickup IS that source.
+    var src = M3.nearestShipperSource ? M3.nearestShipperSource(st.x, st.y) : null;
+    if (!src || src.distance > M3.SHIPPER_RANGE) {
       return { ok: false, error: 'TOO_FAR' };
     }
-    var target = M3.pickDeliveryPoint();
+    var target = M3.pickDeliveryPoint(null, src.id);
     var distance = Math.round(dist(st.x, st.y, target.x, target.y));
     // M4 (§6.3, §6.4): deadline uses the speed of the vehicle RIDING at
     // accept time (walk 180 / bicycle 234 / motorbike 324), LOCKED;
@@ -118,13 +123,14 @@
     localOrder = {
       id: 'local-' + (++localOrderSeq),
       targetX: target.x, targetY: target.y, poiName: target.poiName,
+      pickupId: src.id, pickupName: src.name, pickupX: src.x, pickupY: src.y,
       distance: distance,
       reward: M3.deliveryRewardFor ? M3.deliveryRewardFor(distance, isNight(), ridingId) : M3.deliveryReward(distance, isNight()),
       vehicleId: ridingId || '',
       deadlineAt: now + seconds * 1000, idempotencyKey: uuid(),
       status: 'accepted',
     };
-    if (ctx.sys) ctx.sys('Đã nhận đơn giao tới ' + (target.poiName || 'điểm giao') +
+    if (ctx.sys) ctx.sys('Đã nhận đơn: lấy hàng ở ' + src.name + ', giao tới ' + (target.poiName || 'điểm giao') +
       ' (' + distance + 'm) — hạn ' + seconds + 's, thưởng ' + fmt(localOrder.reward) + '.');
     sfx('accept');
     vfx('acceptPath', target.x, target.y);
@@ -462,7 +468,7 @@
       case 'FAINTED': return 'Bạn đang ngất, không làm đơn được.';
       case 'ALREADY_HAVE_ORDER': return 'Bạn đang có 1 đơn rồi — giao xong / hủy rồi mới nhận đơn mới.';
       case 'COOLDOWN': return 'Vừa hủy đơn, chờ ' + (res.retryAfterSec || 10) + 's nữa mới nhận đơn mới.';
-      case 'TOO_FAR': return 'Chưa tới nơi — tới Kho Hàng Trung Tâm (điểm xám phía Đông Nam) để nhận đơn, tới đúng điểm giao để giao hàng.';
+      case 'TOO_FAR': return 'Chưa tới nơi — tới Kho Hàng Trung Tâm hoặc một cửa hàng (Cửa Hàng Tiện Lợi, Nhà Trọ, Chợ, Quán Cà Phê) để nhận đơn, tới đúng điểm giao để giao hàng.';
       case 'NO_ORDER': return 'Bạn chưa có đơn nào.';
       case 'ALREADY_PROCESSED': return 'Đơn này đã giao xong rồi (chống trùng).';
       case 'EXPIRED': return 'Đơn đã hết hạn — không thưởng, nhận đơn mới được rồi.';
@@ -519,7 +525,7 @@
     if (!st) return;
     var label = (M3 ? M3.JOB_LABELS[st.job] : st.job) || 'Chưa có';
     if (jobLineEl) jobLineEl.textContent = 'Nghề hiện tại: ' + label +
-      (st.job === 'shipper' ? ' — nhận đơn ở Kho Hàng Trung Tâm.' : '');
+      (st.job === 'shipper' ? ' — nhận đơn ở Kho Hàng / các cửa hàng.' : '');
     Object.keys(jobBtns).forEach(function (j) {
       if (jobBtns[j]) jobBtns[j].classList.toggle('active', st.job === j);
     });
@@ -530,21 +536,23 @@
         var cd = isOnline() ? 0 : Math.max(0, Math.ceil((localCancelCooldownUntil - now) / 1000));
         orderInfoEl.textContent = st.job === 'shipper'
           ? (cd > 0 ? 'Chờ ' + cd + 's nữa mới nhận đơn mới (vừa hủy đơn).'
-            : 'Chưa có đơn — tới Kho Hàng Trung Tâm rồi bấm Nhận đơn.')
+            : 'Chưa có đơn — tới Kho Hàng hoặc cửa hàng (Tiện Lợi, Nhà Trọ, Chợ, Cà Phê) rồi bấm Nhận đơn.')
           : 'Chọn nghề Shipper để nhận đơn giao hàng.';
       } else {
         var secLeft = Math.max(0, Math.ceil((order.deadlineAt - now) / 1000));
         var d = Math.round(dist(st.x, st.y, order.targetX, order.targetY));
-        orderInfoEl.textContent = 'Đơn ' + order.id + ' → ' + (order.poiName || 'điểm giao') +
+        orderInfoEl.textContent = 'Đơn ' + order.id + ' • Lấy: ' + (order.pickupName || 'Kho Hàng Trung Tâm') +
+          ' → ' + (order.poiName || 'điểm giao') +
           ' • cách ' + d + 'm • còn ' + secLeft + 's • thưởng ' + fmt(order.reward);
       }
     }
-    var nearWarehouse = M3 && dist(st.x, st.y, M3.WAREHOUSE_POS.x, M3.WAREHOUSE_POS.y) <= M3.SHIPPER_RANGE;
+    var nearSrc = M3 && M3.nearestShipperSource ? M3.nearestShipperSource(st.x, st.y) : null;
+    var nearPickup = !!(nearSrc && nearSrc.distance <= M3.SHIPPER_RANGE);
     var nearTarget = order && dist(st.x, st.y, order.targetX, order.targetY) <= M3.DELIVER_RANGE;
-    if (acceptBtn) acceptBtn.disabled = !(st.job === 'shipper' && !order && !st.isFainted && nearWarehouse);
+    if (acceptBtn) acceptBtn.disabled = !(st.job === 'shipper' && !order && !st.isFainted && nearPickup);
     if (completeBtn) completeBtn.disabled = !(order && !st.isFainted && nearTarget);
     if (cancelBtn) cancelBtn.disabled = !order;
-    if (acceptBtn) acceptBtn.title = nearWarehouse ? '' : 'Tới Kho Hàng Trung Tâm để nhận đơn';
+    if (acceptBtn) acceptBtn.title = nearPickup ? '' : 'Tới Kho Hàng Trung Tâm hoặc cửa hàng để nhận đơn';
     if (completeBtn) completeBtn.title = nearTarget ? '' : 'Tới trong 80px quanh điểm giao để giao hàng';
 
     // M4: vehicle section — owned vehicles + riding state.

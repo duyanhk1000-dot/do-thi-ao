@@ -170,6 +170,10 @@
       try {
         world = opts.world;
         fxLayer = new P.Container();
+        // TRAFFIC (2026-11-25): world is y-sorted now (sortableChildren),
+        // so the FX layer needs an explicit top zIndex or particles would
+        // sink below every mover (zIndex = y > 0).
+        fxLayer.zIndex = 100000;
         world.addChild(fxLayer);
         // Particle pool: pre-built once, reused forever (no hot-loop alloc).
         for (var i = 0; i < POOL_N; i++) {

@@ -46,7 +46,10 @@
       // M3 Shipper (§6): active order mirrored from the server state.
       orderStatus: p.orderStatus || 'none', orderId: p.orderId || '',
       orderX: p.orderX || 0, orderY: p.orderY || 0,
-      orderDeadline: p.orderDeadline || 0, orderReward: p.orderReward || 0
+      orderDeadline: p.orderDeadline || 0, orderReward: p.orderReward || 0,
+      // Multi-shop Shipper (2026-11-25): pickup source of the order.
+      orderPickupX: p.orderPickupX || 0, orderPickupY: p.orderPickupY || 0,
+      orderPickupName: p.orderPickupName || ''
     };
   }
 

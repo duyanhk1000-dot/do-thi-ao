@@ -40,6 +40,10 @@ defineTypes(PlayerState, {
   orderY: 'number',
   orderDeadline: 'number',
   orderReward: 'number',
+  // Multi-shop Shipper (2026-11-25): where this order is picked up.
+  orderPickupX: 'number',
+  orderPickupY: 'number',
+  orderPickupName: 'string',
   chatBubble: 'string',
   chatBubbleUntil: 'number', // ms epoch; bubble shows until then
   avatar: 'string', // 'shipper' | 'bread' | 'taxi' | 'police' | 'thug' | 'student' | 'hero' | ...
